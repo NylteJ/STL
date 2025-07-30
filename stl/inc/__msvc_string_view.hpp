@@ -1508,8 +1508,10 @@ public:
 #if _HAS_CXX20
     template <contiguous_iterator _Iter, sized_sentinel_for<_Iter> _Sent>
         requires (is_same_v<iter_value_t<_Iter>, _Elem> && !is_convertible_v<_Sent, size_type>)
-    constexpr basic_string_view(_Iter _First, _Sent _Last) noexcept(noexcept(_Last - _First)) // strengthened
-        : _Mydata(_STD to_address(_First)), _Mysize(static_cast<size_type>(_Last - _First)) {}
+    constexpr basic_string_view(_Iter _First, _Sent _Last)
+        noexcept(noexcept(_STD _Contiguous_iter_distance(_First, _Last))) // strengthened
+        : _Mydata(_STD to_address(_First)),
+          _Mysize(static_cast<size_type>(_STD _Contiguous_iter_distance(_First, _Last))) {}
 
 #if _HAS_CXX23
     template <class _Range>

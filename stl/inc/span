@@ -302,8 +302,10 @@ public:
     = default;
 
     template <_Span_compatible_iterator<element_type> _It>
-    constexpr explicit(_Extent != dynamic_extent) span(_It _First, size_type _Count) noexcept // strengthened
+    constexpr explicit(_Extent != dynamic_extent) span(_It _First, size_type _Count) noexcept(
+        noexcept(_STD _Contiguous_iter_verify(_STD _Get_unwrapped(_First), static_cast<iter_difference_t<_It>>(_Count)))) // strengthened
         : _Mybase(_STD to_address(_STD _Get_unwrapped_n(_First, _Count)), _Count) {
+        _STD _Contiguous_iter_verify(_STD _Get_unwrapped(_First), static_cast<iter_difference_t<_It>>(_Count));
 #if _MSVC_STL_HARDENING_SPAN || _ITERATOR_DEBUG_LEVEL != 0
         if constexpr (_Extent != dynamic_extent) {
             _STL_VERIFY(_Count == _Extent,
@@ -313,9 +315,9 @@ public:
     }
 
     template <_Span_compatible_iterator<element_type> _It, _Span_compatible_sentinel<_It> _Sentinel>
-    constexpr explicit(_Extent != dynamic_extent) span(_It _First, _Sentinel _Last)
-        noexcept(noexcept(_Last - _First)) // strengthened
-        : _Mybase(_STD to_address(_First), static_cast<size_type>(_Last - _First)) {
+    constexpr explicit(_Extent != dynamic_extent) span(_It _First, _Sentinel _Last) noexcept(
+        noexcept(_STD _Contiguous_iter_distance(_First, _Last))) // strengthened
+        : _Mybase(_STD to_address(_First), static_cast<size_type>(_STD _Contiguous_iter_distance(_First, _Last))) {
         _STD _Adl_verify_range(_First, _Last);
 #if _MSVC_STL_HARDENING_SPAN || _ITERATOR_DEBUG_LEVEL != 0
         if constexpr (_Extent != dynamic_extent) {

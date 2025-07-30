@@ -4238,7 +4238,7 @@ namespace ranges {
                 using _Decayed = decay_t<_It>;
                 _STL_INTERNAL_STATIC_ASSERT(input_or_output_iterator<_Decayed>);
                 if constexpr (contiguous_iterator<_Decayed>) {
-                    return {_St::_Span, true};
+                    return {_St::_Span, noexcept(_STD declval<_It>() + iter_difference_t<_Decayed>{})};
                 } else if constexpr (random_access_iterator<_Decayed>) {
                     return {_St::_Subrange,
                         noexcept(subrange(_STD declval<_It>(), _STD declval<_It>() + iter_difference_t<_Decayed>{}))};
@@ -4265,7 +4265,7 @@ namespace ranges {
                 constexpr _St _Strat = _Choice<_It>._Strategy;
 
                 if constexpr (_Strat == _St::_Span) {
-                    return span(_STD to_address(_STD forward<_It>(_First)), static_cast<size_t>(_Count));
+                    return span(_STD to_address(_First), _STD to_address(_First + _Count));
                 } else if constexpr (_Strat == _St::_Subrange) {
                     return subrange(_First, _First + _Count);
                 } else if constexpr (_Strat == _St::_Subrange_counted) {

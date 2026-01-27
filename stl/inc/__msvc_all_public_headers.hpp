@@ -88,6 +88,7 @@
 #include <fstream>
 #include <functional>
 #include <generator>
+#include <hive>
 #include <iomanip>
 #include <ios>
 #include <iosfwd>

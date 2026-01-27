@@ -19,6 +19,10 @@
 #include <span>
 #endif // _HAS_CXX20
 
+#if _HAS_CXX26
+#include <hive>
+#endif // _HAS_CXX20
+
 using namespace std;
 
 #pragma warning(disable : 4251) // class 'A' needs to have dll-interface to be used by clients of class 'B'
@@ -50,6 +54,12 @@ struct __declspec(dllexport) ExportedStack : stack<int> {};
 struct __declspec(dllexport) ExportedSpan : span<int> {};
 struct __declspec(dllexport) ExportedSpanThree : span<int, 3> {};
 #endif // _HAS_CXX20
+
+#if _HAS_CXX26
+struct __declspec(dllexport) ExportedHiveChar : hive<char> {};
+struct __declspec(dllexport) ExportedHiveShort : hive<short> {};
+struct __declspec(dllexport) ExportedHiveInt : hive<int> {};
+#endif // _HAS_CXX26
 
 // Test GH-3013 "<utility>: pair::swap(const pair&) interacts badly with __declspec(dllexport)"
 struct __declspec(dllexport) ExportedPair : pair<int, int> {};

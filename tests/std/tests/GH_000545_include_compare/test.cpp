@@ -8,6 +8,7 @@ void test_deque();
 void test_filesystem();
 void test_forward_list();
 void test_iterator();
+void test_hive();
 void test_list();
 void test_map();
 void test_memory();
@@ -38,6 +39,7 @@ int main() {
     test_filesystem();
     test_forward_list();
     test_iterator();
+    test_hive();
     test_list();
     test_map();
     test_memory();

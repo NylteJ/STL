@@ -15,6 +15,10 @@
 #include <utility>
 #include <vector>
 
+#if _HAS_CXX26
+#include <hive>
+#endif // _HAS_CXX26
+
 using namespace std;
 
 template <typename Container>
@@ -49,4 +53,10 @@ int main() {
     test<unordered_multimap<int, int>>();
 
     test<forward_list<int>>();
+
+#if _HAS_CXX26
+    test<hive<char>>;
+    test<hive<short>>;
+    test<hive<int>>;
+#endif // _HAS_CXX26
 }

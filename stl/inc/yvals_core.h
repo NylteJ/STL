@@ -403,6 +403,9 @@
 // P3235R3 std::print More Types Faster With Less Memory
 //     (partial implementation; see GH-4924)
 
+// _HAS_CXX26 controls:
+// P0447R28 <hive>
+
 // Parallel Algorithms Notes
 // C++ allows an implementation to implement parallel algorithms as calls to the serial algorithms.
 // This implementation parallelizes several common algorithm calls, but not all.
@@ -1806,6 +1809,11 @@ _EMIT_STL_ERROR(STL1004, "C++98 unexpected() is incompatible with C++23 unexpect
 #define __cpp_lib_tuple_like                  202207L
 #define __cpp_lib_unreachable                 202202L
 #endif // _HAS_CXX23
+
+// C++26
+#if _HAS_CXX26
+#define __cpp_lib_hive 202502L
+#endif // _HAS_CXX26
 
 // macros with language mode sensitivity
 #if _HAS_CXX20

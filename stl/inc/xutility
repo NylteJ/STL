@@ -1775,10 +1775,51 @@ constexpr void _Debug_order_set_unchecked(_InIt _First, _InIt _Last, _Pr&& _Pred
 }
 #endif // ^^^ _ITERATOR_DEBUG_LEVEL == 2 ^^^
 
+#if _HAS_CXX26
+template <class>
+struct _Hive_iterator_flag {};
+template <class _Ty>
+struct _Hive_mutable_iterator_flag : _Hive_iterator_flag<_Ty> {};
+
+template <class _It, bool _RequiresMutable>
+consteval bool _Is_hive_iterator_impl() {
+    if constexpr (requires { typename _It::_Flag; }) {
+        return is_base_of_v<conditional_t<_RequiresMutable, _Hive_mutable_iterator_flag<_It>, _Hive_iterator_flag<_It>>,
+            typename _It::_Flag>;
+    } else {
+        return false;
+    }
+}
+
+template <class _It, bool _RequiresMutable = false>
+constexpr bool _Is_hive_iterator = _STD _Is_hive_iterator_impl<_It, _RequiresMutable>();
+#else // ^^^ _HAS_CXX26 / !_HAS_CXX26 vvv
+template <class _It, bool _RequiresMutable = false>
+constexpr bool _Is_hive_iterator = false;
+#endif // ^^^ !_HAS_CXX26 ^^^
+template <class _It, bool _RequiresMutable = false>
+constexpr bool _Is_hive_riterator = false;
+
+struct _Hive_algorithms {
+    template <class _HiveIt, class _Diff>
+    static constexpr void _Advance(_HiveIt& _Where, _Diff _Offset);
+    template <class _HiveIt, class _HiveSe>
+    static constexpr _Iter_diff_t<_HiveIt> _Distance(_HiveIt _First, const _HiveSe& _Last);
+
+    template <class _HiveIt, class _HiveSe, class _Fn>
+    static constexpr _HiveIt _For_each(_HiveIt _UFirst, const _HiveSe& _ULast, _Fn _Func);
+};
+
 // from <iterator>
 _EXPORT_STD template <class _InIt, class _Diff>
 _CONSTEXPR17 void advance(_InIt& _Where, _Diff _Off) { // increment iterator by offset
-    if constexpr (_Is_ranges_random_iter_v<_InIt>) {
+    if constexpr (_Is_hive_iterator<_InIt>) {
+        _Hive_algorithms::_Advance(_Where, _Off);
+    } else if constexpr (_Is_hive_riterator<_InIt>) {
+        using _BaseIt = typename _InIt::iterator_type;
+        _Hive_algorithms::_Advance(
+            const_cast<_BaseIt&>(_Where._Get_current()), -static_cast<make_signed_t<_Diff>>(_Off));
+    } else if constexpr (_Is_ranges_random_iter_v<_InIt>) {
         _Where += _Off;
     } else {
         if constexpr (is_signed_v<_Diff> && !_Is_ranges_bidi_iter_v<_InIt>) {
@@ -1806,7 +1847,11 @@ _CONSTEXPR17 void advance(_InIt& _Where, _Diff _Off) { // increment iterator by 
 
 _EXPORT_STD template <class _InIt>
 _NODISCARD _CONSTEXPR17 _Iter_diff_t<_InIt> distance(_InIt _First, _InIt _Last) {
-    if constexpr (_Is_ranges_random_iter_v<_InIt>) {
+    if constexpr (_Is_hive_iterator<_InIt>) {
+        return _Hive_algorithms::_Distance(_First, _Last);
+    } else if constexpr (_Is_hive_riterator<_InIt>) {
+        return _Hive_algorithms::_Distance(_Last.base(), _First.base());
+    } else if constexpr (_Is_ranges_random_iter_v<_InIt>) {
         return _Last - _First; // assume the iterator will do debug checking
     } else {
         _STD _Adl_verify_range(_First, _Last);
@@ -2133,6 +2178,10 @@ _NODISCARD _CONSTEXPR17 reverse_iterator<_BidIt> operator+(typename reverse_iter
     const reverse_iterator<_BidIt>& _Right) noexcept(noexcept(_Right + _Off)) /* strengthened */ {
     return _Right + _Off;
 }
+
+template <class _HiveIt, bool _RequiresMutable>
+constexpr bool _Is_hive_riterator<reverse_iterator<_HiveIt>, _RequiresMutable> =
+    _Is_hive_iterator<_HiveIt, _RequiresMutable>;
 
 _EXPORT_STD template <class _BidIt>
 _NODISCARD _CONSTEXPR17 reverse_iterator<_BidIt> make_reverse_iterator(_BidIt _Iter)
@@ -3567,7 +3616,12 @@ namespace ranges {
     struct _Advance_fn {
         template <input_or_output_iterator _It>
         _STATIC_CALL_OPERATOR constexpr void operator()(_It& _Where, iter_difference_t<_It> _Off) _CONST_CALL_OPERATOR {
-            if constexpr (random_access_iterator<_It>) {
+            if constexpr (_Is_hive_iterator<_It>) {
+                _Hive_algorithms::_Advance(_Where, _Off);
+            } else if constexpr (_Is_hive_riterator<_It>) {
+                using _BaseIt = _It::iterator_type;
+                _Hive_algorithms::_Advance(const_cast<_BaseIt&>(_Where._Get_current()), -_Off);
+            } else if constexpr (random_access_iterator<_It>) {
                 _Where += _Off;
             } else {
                 if constexpr (!bidirectional_iterator<_It>) {
@@ -3695,12 +3749,18 @@ namespace ranges {
             noexcept(noexcept(++_First != _Last)) {
             _STL_INTERNAL_STATIC_ASSERT(sentinel_for<_Se, _It>);
 
-            iter_difference_t<_It> _Count = 0;
-            for (; _First != _Last; ++_First) {
-                ++_Count;
-            }
+            if constexpr (_Is_hive_iterator<_It> && _Is_hive_iterator<_Se>) {
+                return _Hive_algorithms::_Distance(_First, _Last);
+            } else if constexpr (_Is_hive_riterator<_It> && _Is_hive_riterator<_Se>) {
+                return _Hive_algorithms::_Distance(_Last.base(), _First.base());
+            } else {
+                iter_difference_t<_It> _Count = 0;
+                for (; _First != _Last; ++_First) {
+                    ++_Count;
+                }
 
-            return _Count;
+                return _Count;
+            }
         }
 
         template <class _It, class _Se>

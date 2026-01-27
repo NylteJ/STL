@@ -131,6 +131,10 @@ export module std;
 #include <stdfloat>
 #endif // _HAS_CXX23
 
+#if _HAS_CXX26
+#include <hive>
+#endif // _HAS_CXX26
+
 // "C++ headers for C library facilities" [tab:headers.cpp.c]
 #include <cassert>
 #include <cctype>

@@ -30,6 +30,10 @@
 #include <stacktrace>
 #endif // _HAS_CXX23
 
+#if _HAS_CXX26
+#include <hive>
+#endif // _HAS_CXX26
+
 #include <test_death.hpp>
 
 using namespace std;
@@ -619,6 +623,15 @@ void test_stacktrace_subscript() {
 }
 #endif // _HAS_CXX23
 
+#if _HAS_CXX26
+// <hive>
+template <class T>
+void test_hive_get_iterator() {
+    hive<T> h;
+    (void) h.get_iterator(nullptr);
+}
+#endif // _HAS_CXX26
+
 int main(int argc, char* argv[]) {
     std_testing::death_test_executive exec;
 
@@ -740,6 +753,12 @@ int main(int argc, char* argv[]) {
         test_stacktrace_current,
         test_stacktrace_subscript,
 #endif // _HAS_CXX23
+
+#if _HAS_CXX26
+        test_hive_get_iterator<char>,
+        test_hive_get_iterator<short>,
+        test_hive_get_iterator<int>,
+#endif // _HAS_CXX26
     });
 
     return exec.run(argc, argv);

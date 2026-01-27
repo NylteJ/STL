@@ -15,6 +15,10 @@
 #include <unordered_set>
 #include <vector>
 
+#if _HAS_CXX26
+#include <hive>
+#endif // _HAS_CXX26
+
 using namespace std;
 
 map<size_t, int> g_map;
@@ -135,6 +139,12 @@ int main() {
         unordered_multiset<int, hash<int>, equal_to<int>, MyAllocator<int>> ums;
         unordered_map<int, int, hash<int>, equal_to<int>, MyAllocator<pair<const int, int>>> um;
         unordered_multimap<int, int, hash<int>, equal_to<int>, MyAllocator<pair<const int, int>>> umm;
+
+#if _HAS_CXX26
+        hive<bool, MyAllocator<bool>> hb;
+        hive<short, MyAllocator<short>> hs;
+        hive<int, MyAllocator<int>> hi;
+#endif // _HAS_CXX26
     }
 
     for (auto&& entry : g_map) {

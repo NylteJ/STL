@@ -483,6 +483,12 @@ STATIC_ASSERT(__cpp_lib_has_unique_object_representations == 201606L);
 #error __cpp_lib_has_unique_object_representations is defined
 #endif
 
+#if _HAS_CXX26
+STATIC_ASSERT(__cpp_lib_hive == 202502L);
+#elif defined(__cpp_lib_hive)
+#error __cpp_lib_hive is defined
+#endif
+
 #if _HAS_CXX17
 STATIC_ASSERT(__cpp_lib_hypot == 201603L);
 #elif defined(__cpp_lib_hypot)

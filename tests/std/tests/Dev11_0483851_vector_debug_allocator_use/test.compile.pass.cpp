@@ -11,6 +11,10 @@
 #include <unordered_set>
 #include <vector>
 
+#if _HAS_CXX26
+#include <hive>
+#endif // _HAS_CXX26
+
 // Regression test for DevDiv-483851 : [C++11] STL containers must use std::allocator_traits in debug mode
 
 template <typename T, typename Base>
@@ -103,4 +107,16 @@ namespace std {
     // vector<bool>
     template class vector<bool, simple_allocator<bool, empty_base>>;
     template class vector<bool, simple_allocator<bool, nonempty_base>>;
+
+#if _HAS_CXX26
+    // hive
+    template class hive<bool, simple_allocator<bool, empty_base>>;
+    template class hive<bool, simple_allocator<bool, nonempty_base>>;
+
+    template class hive<short, simple_allocator<short, empty_base>>;
+    template class hive<short, simple_allocator<short, nonempty_base>>;
+
+    template class hive<int, simple_allocator<int, empty_base>>;
+    template class hive<int, simple_allocator<int, nonempty_base>>;
+#endif // _HAS_CXX26
 } // namespace std

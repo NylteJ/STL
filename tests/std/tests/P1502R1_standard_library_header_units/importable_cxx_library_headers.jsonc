@@ -29,6 +29,7 @@
     "functional",
     "future",
     "generator",
+    "hive",
     "initializer_list",
     "iomanip",
     "ios",

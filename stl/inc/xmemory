@@ -1187,6 +1187,35 @@ struct _Alloc_construct_ptr { // pointer used to help construct 1 _Alloc::value_
     _Alloc_construct_ptr& operator=(const _Alloc_construct_ptr&) = delete;
 };
 
+template <class _Alloc>
+struct _Alloc_construct_n_ptr { // pointer used to help construct n _Alloc::value_type without EH
+    using pointer   = _Alloc_ptr_t<_Alloc>;
+    using size_type = _Alloc_size_t<_Alloc>;
+    _Alloc& _Al;
+    pointer _Ptr;
+    size_type _Cnt;
+
+    _CONSTEXPR20 explicit _Alloc_construct_n_ptr(_Alloc& _Al_, size_type _Cnt) : _Al(_Al_), _Ptr(nullptr), _Cnt(_Cnt) {}
+
+    _NODISCARD _CONSTEXPR20 pointer _Release() noexcept { // disengage *this and return contained pointer
+        return _STD exchange(_Ptr, nullptr);
+    }
+
+    _CONSTEXPR20 void _Allocate() { // disengage *this, then allocate a new memory block
+        _Ptr = nullptr; // if allocate throws, prevents double-free
+        _Ptr = _Al.allocate(_Cnt);
+    }
+
+    _CONSTEXPR20 ~_Alloc_construct_n_ptr() { // if this instance is engaged, deallocate storage
+        if (_Ptr) {
+            _Al.deallocate(_Ptr, _Cnt);
+        }
+    }
+
+    _Alloc_construct_n_ptr(const _Alloc_construct_n_ptr&)            = delete;
+    _Alloc_construct_n_ptr& operator=(const _Alloc_construct_n_ptr&) = delete;
+};
+
 struct _Fake_allocator {};
 
 struct _Container_base0 {

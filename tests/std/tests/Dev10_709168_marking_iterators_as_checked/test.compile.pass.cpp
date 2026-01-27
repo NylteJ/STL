@@ -18,6 +18,10 @@
 #include <unordered_set>
 #include <vector>
 
+#if _HAS_CXX26
+#include <hive>
+#endif // _HAS_CXX26
+
 #define STATIC_ASSERT(...) static_assert(__VA_ARGS__, #__VA_ARGS__)
 
 struct MeowIterator;
@@ -109,6 +113,21 @@ STATIC_ASSERT(stl_checked == _Range_verifiable_v<span<int>::iterator>);
 STATIC_ASSERT(stl_checked == _Range_verifiable_v<span<int>::reverse_iterator>);
 #endif // _HAS_CXX20
 
+#if _HAS_CXX26
+STATIC_ASSERT(stl_checked == _Range_verifiable_v<hive<char>::iterator>);
+STATIC_ASSERT(stl_checked == _Range_verifiable_v<hive<char>::const_iterator>);
+STATIC_ASSERT(stl_checked == _Range_verifiable_v<hive<char>::reverse_iterator>);
+STATIC_ASSERT(stl_checked == _Range_verifiable_v<hive<char>::const_reverse_iterator>);
+STATIC_ASSERT(stl_checked == _Range_verifiable_v<hive<short>::iterator>);
+STATIC_ASSERT(stl_checked == _Range_verifiable_v<hive<short>::const_iterator>);
+STATIC_ASSERT(stl_checked == _Range_verifiable_v<hive<short>::reverse_iterator>);
+STATIC_ASSERT(stl_checked == _Range_verifiable_v<hive<short>::const_reverse_iterator>);
+STATIC_ASSERT(stl_checked == _Range_verifiable_v<hive<int>::iterator>);
+STATIC_ASSERT(stl_checked == _Range_verifiable_v<hive<int>::const_iterator>);
+STATIC_ASSERT(stl_checked == _Range_verifiable_v<hive<int>::reverse_iterator>);
+STATIC_ASSERT(stl_checked == _Range_verifiable_v<hive<int>::const_reverse_iterator>);
+#endif // _HAS_CXX26
+
 STATIC_ASSERT(!_Range_verifiable_v<::DerivedFrom<string::iterator>>);
 STATIC_ASSERT(!_Range_verifiable_v<::DerivedFrom<string::const_iterator>>);
 STATIC_ASSERT(!_Range_verifiable_v<::DerivedFrom<string::reverse_iterator>>);
@@ -180,6 +199,21 @@ STATIC_ASSERT(!_Range_verifiable_v<::DerivedFrom<std::filesystem::path::const_it
 STATIC_ASSERT(!_Range_verifiable_v<::DerivedFrom<span<int>::iterator>>);
 STATIC_ASSERT(!_Range_verifiable_v<::DerivedFrom<span<int>::reverse_iterator>>);
 #endif // _HAS_CXX20
+
+#if _HAS_CXX26
+STATIC_ASSERT(!_Range_verifiable_v<::DerivedFrom<hive<char>::iterator>>);
+STATIC_ASSERT(!_Range_verifiable_v<::DerivedFrom<hive<char>::const_iterator>>);
+STATIC_ASSERT(!_Range_verifiable_v<::DerivedFrom<hive<char>::reverse_iterator>>);
+STATIC_ASSERT(!_Range_verifiable_v<::DerivedFrom<hive<char>::const_reverse_iterator>>);
+STATIC_ASSERT(!_Range_verifiable_v<::DerivedFrom<hive<short>::iterator>>);
+STATIC_ASSERT(!_Range_verifiable_v<::DerivedFrom<hive<short>::const_iterator>>);
+STATIC_ASSERT(!_Range_verifiable_v<::DerivedFrom<hive<short>::reverse_iterator>>);
+STATIC_ASSERT(!_Range_verifiable_v<::DerivedFrom<hive<short>::const_reverse_iterator>>);
+STATIC_ASSERT(!_Range_verifiable_v<::DerivedFrom<hive<int>::iterator>>);
+STATIC_ASSERT(!_Range_verifiable_v<::DerivedFrom<hive<int>::const_iterator>>);
+STATIC_ASSERT(!_Range_verifiable_v<::DerivedFrom<hive<int>::reverse_iterator>>);
+STATIC_ASSERT(!_Range_verifiable_v<::DerivedFrom<hive<int>::const_reverse_iterator>>);
+#endif // _HAS_CXX26
 
 template <class I, bool Expected>
 constexpr bool test_unwrappable() {
@@ -394,6 +428,21 @@ STATIC_ASSERT(test_unwrappable_for_unverified<span<int>::iterator, !stl_checked>
 STATIC_ASSERT(test_unwrappable_for_unverified<span<int>::reverse_iterator, !stl_checked>());
 #endif // _HAS_CXX20
 
+#if _HAS_CXX26
+STATIC_ASSERT(test_unwrappable_for_unverified<hive<char>::iterator, !stl_checked>());
+STATIC_ASSERT(test_unwrappable_for_unverified<hive<char>::const_iterator, !stl_checked>());
+STATIC_ASSERT(test_unwrappable_for_unverified<hive<char>::reverse_iterator, !stl_checked>());
+STATIC_ASSERT(test_unwrappable_for_unverified<hive<char>::const_reverse_iterator, !stl_checked>());
+STATIC_ASSERT(test_unwrappable_for_unverified<hive<short>::iterator, !stl_checked>());
+STATIC_ASSERT(test_unwrappable_for_unverified<hive<short>::const_iterator, !stl_checked>());
+STATIC_ASSERT(test_unwrappable_for_unverified<hive<short>::reverse_iterator, !stl_checked>());
+STATIC_ASSERT(test_unwrappable_for_unverified<hive<short>::const_reverse_iterator, !stl_checked>());
+STATIC_ASSERT(test_unwrappable_for_unverified<hive<int>::iterator, !stl_checked>());
+STATIC_ASSERT(test_unwrappable_for_unverified<hive<int>::const_iterator, !stl_checked>());
+STATIC_ASSERT(test_unwrappable_for_unverified<hive<int>::reverse_iterator, !stl_checked>());
+STATIC_ASSERT(test_unwrappable_for_unverified<hive<int>::const_reverse_iterator, !stl_checked>());
+#endif // _HAS_CXX26
+
 STATIC_ASSERT(test_unwrappable<string::iterator, true>());
 STATIC_ASSERT(test_unwrappable<string::const_iterator, true>());
 STATIC_ASSERT(test_unwrappable<string::reverse_iterator, true>());
@@ -466,6 +515,21 @@ STATIC_ASSERT(test_unwrappable<std::filesystem::path::const_iterator, true>());
 STATIC_ASSERT(test_unwrappable<span<int>::iterator, true>());
 STATIC_ASSERT(test_unwrappable<span<int>::reverse_iterator, true>());
 #endif // _HAS_CXX20
+
+#if _HAS_CXX26
+STATIC_ASSERT(test_unwrappable<hive<char>::iterator, true>());
+STATIC_ASSERT(test_unwrappable<hive<char>::const_iterator, true>());
+STATIC_ASSERT(test_unwrappable<hive<char>::reverse_iterator, true>());
+STATIC_ASSERT(test_unwrappable<hive<char>::const_reverse_iterator, true>());
+STATIC_ASSERT(test_unwrappable<hive<short>::iterator, true>());
+STATIC_ASSERT(test_unwrappable<hive<short>::const_iterator, true>());
+STATIC_ASSERT(test_unwrappable<hive<short>::reverse_iterator, true>());
+STATIC_ASSERT(test_unwrappable<hive<short>::const_reverse_iterator, true>());
+STATIC_ASSERT(test_unwrappable<hive<int>::iterator, true>());
+STATIC_ASSERT(test_unwrappable<hive<int>::const_iterator, true>());
+STATIC_ASSERT(test_unwrappable<hive<int>::reverse_iterator, true>());
+STATIC_ASSERT(test_unwrappable<hive<int>::const_reverse_iterator, true>());
+#endif // _HAS_CXX26
 
 STATIC_ASSERT(test_unwrappable_for_offset<string::iterator, true>());
 STATIC_ASSERT(test_unwrappable_for_offset<string::const_iterator, true>());
@@ -540,6 +604,21 @@ STATIC_ASSERT(test_unwrappable_for_offset<span<int>::iterator, true>());
 STATIC_ASSERT(test_unwrappable_for_offset<span<int>::reverse_iterator, true>());
 #endif // _HAS_CXX20
 
+#if _HAS_CXX26
+STATIC_ASSERT(test_unwrappable_for_offset<hive<char>::iterator, false>());
+STATIC_ASSERT(test_unwrappable_for_offset<hive<char>::const_iterator, false>());
+STATIC_ASSERT(test_unwrappable_for_offset<hive<char>::reverse_iterator, false>());
+STATIC_ASSERT(test_unwrappable_for_offset<hive<char>::const_reverse_iterator, false>());
+STATIC_ASSERT(test_unwrappable_for_offset<hive<short>::iterator, false>());
+STATIC_ASSERT(test_unwrappable_for_offset<hive<short>::const_iterator, false>());
+STATIC_ASSERT(test_unwrappable_for_offset<hive<short>::reverse_iterator, false>());
+STATIC_ASSERT(test_unwrappable_for_offset<hive<short>::const_reverse_iterator, false>());
+STATIC_ASSERT(test_unwrappable_for_offset<hive<int>::iterator, false>());
+STATIC_ASSERT(test_unwrappable_for_offset<hive<int>::const_iterator, false>());
+STATIC_ASSERT(test_unwrappable_for_offset<hive<int>::reverse_iterator, false>());
+STATIC_ASSERT(test_unwrappable_for_offset<hive<int>::const_reverse_iterator, false>());
+#endif // _HAS_CXX26
+
 STATIC_ASSERT(test_unwrappable_for_unverified<::DerivedFrom<string::iterator>, false>());
 STATIC_ASSERT(test_unwrappable_for_unverified<::DerivedFrom<string::const_iterator>, false>());
 STATIC_ASSERT(test_unwrappable_for_unverified<::DerivedFrom<string::reverse_iterator>, false>());
@@ -611,6 +690,21 @@ STATIC_ASSERT(test_unwrappable_for_unverified<::DerivedFrom<std::filesystem::pat
 STATIC_ASSERT(test_unwrappable_for_unverified<::DerivedFrom<span<int>::iterator>, false>());
 STATIC_ASSERT(test_unwrappable_for_unverified<::DerivedFrom<span<int>::reverse_iterator>, false>());
 #endif // _HAS_CXX20
+
+#if _HAS_CXX26
+STATIC_ASSERT(test_unwrappable_for_unverified<::DerivedFrom<hive<char>::iterator>, false>());
+STATIC_ASSERT(test_unwrappable_for_unverified<::DerivedFrom<hive<char>::const_iterator>, false>());
+STATIC_ASSERT(test_unwrappable_for_unverified<::DerivedFrom<hive<char>::reverse_iterator>, false>());
+STATIC_ASSERT(test_unwrappable_for_unverified<::DerivedFrom<hive<char>::const_reverse_iterator>, false>());
+STATIC_ASSERT(test_unwrappable_for_unverified<::DerivedFrom<hive<short>::iterator>, false>());
+STATIC_ASSERT(test_unwrappable_for_unverified<::DerivedFrom<hive<short>::const_iterator>, false>());
+STATIC_ASSERT(test_unwrappable_for_unverified<::DerivedFrom<hive<short>::reverse_iterator>, false>());
+STATIC_ASSERT(test_unwrappable_for_unverified<::DerivedFrom<hive<short>::const_reverse_iterator>, false>());
+STATIC_ASSERT(test_unwrappable_for_unverified<::DerivedFrom<hive<int>::iterator>, false>());
+STATIC_ASSERT(test_unwrappable_for_unverified<::DerivedFrom<hive<int>::const_iterator>, false>());
+STATIC_ASSERT(test_unwrappable_for_unverified<::DerivedFrom<hive<int>::reverse_iterator>, false>());
+STATIC_ASSERT(test_unwrappable_for_unverified<::DerivedFrom<hive<int>::const_reverse_iterator>, false>());
+#endif // _HAS_CXX26
 
 STATIC_ASSERT(test_unwrappable<::DerivedFrom<string::iterator>, false>());
 STATIC_ASSERT(test_unwrappable<::DerivedFrom<string::const_iterator>, false>());
@@ -684,6 +778,21 @@ STATIC_ASSERT(test_unwrappable<::DerivedFrom<span<int>::iterator>, false>());
 STATIC_ASSERT(test_unwrappable<::DerivedFrom<span<int>::reverse_iterator>, false>());
 #endif // _HAS_CXX20
 
+#if _HAS_CXX26
+STATIC_ASSERT(test_unwrappable<::DerivedFrom<hive<char>::iterator>, false>());
+STATIC_ASSERT(test_unwrappable<::DerivedFrom<hive<char>::const_iterator>, false>());
+STATIC_ASSERT(test_unwrappable<::DerivedFrom<hive<char>::reverse_iterator>, false>());
+STATIC_ASSERT(test_unwrappable<::DerivedFrom<hive<char>::const_reverse_iterator>, false>());
+STATIC_ASSERT(test_unwrappable<::DerivedFrom<hive<short>::iterator>, false>());
+STATIC_ASSERT(test_unwrappable<::DerivedFrom<hive<short>::const_iterator>, false>());
+STATIC_ASSERT(test_unwrappable<::DerivedFrom<hive<short>::reverse_iterator>, false>());
+STATIC_ASSERT(test_unwrappable<::DerivedFrom<hive<short>::const_reverse_iterator>, false>());
+STATIC_ASSERT(test_unwrappable<::DerivedFrom<hive<int>::iterator>, false>());
+STATIC_ASSERT(test_unwrappable<::DerivedFrom<hive<int>::const_iterator>, false>());
+STATIC_ASSERT(test_unwrappable<::DerivedFrom<hive<int>::reverse_iterator>, false>());
+STATIC_ASSERT(test_unwrappable<::DerivedFrom<hive<int>::const_reverse_iterator>, false>());
+#endif // _HAS_CXX26
+
 STATIC_ASSERT(test_unwrappable_for_offset<::DerivedFrom<string::iterator>, false>());
 STATIC_ASSERT(test_unwrappable_for_offset<::DerivedFrom<string::const_iterator>, false>());
 STATIC_ASSERT(test_unwrappable_for_offset<::DerivedFrom<string::reverse_iterator>, false>());
@@ -755,3 +864,18 @@ STATIC_ASSERT(test_unwrappable_for_offset<::DerivedFrom<std::filesystem::path::c
 STATIC_ASSERT(test_unwrappable_for_offset<::DerivedFrom<span<int>::iterator>, false>());
 STATIC_ASSERT(test_unwrappable_for_offset<::DerivedFrom<span<int>::reverse_iterator>, false>());
 #endif // _HAS_CXX20
+
+#if _HAS_CXX26
+STATIC_ASSERT(test_unwrappable_for_offset<::DerivedFrom<hive<char>::iterator>, false>());
+STATIC_ASSERT(test_unwrappable_for_offset<::DerivedFrom<hive<char>::const_iterator>, false>());
+STATIC_ASSERT(test_unwrappable_for_offset<::DerivedFrom<hive<char>::reverse_iterator>, false>());
+STATIC_ASSERT(test_unwrappable_for_offset<::DerivedFrom<hive<char>::const_reverse_iterator>, false>());
+STATIC_ASSERT(test_unwrappable_for_offset<::DerivedFrom<hive<short>::iterator>, false>());
+STATIC_ASSERT(test_unwrappable_for_offset<::DerivedFrom<hive<short>::const_iterator>, false>());
+STATIC_ASSERT(test_unwrappable_for_offset<::DerivedFrom<hive<short>::reverse_iterator>, false>());
+STATIC_ASSERT(test_unwrappable_for_offset<::DerivedFrom<hive<short>::const_reverse_iterator>, false>());
+STATIC_ASSERT(test_unwrappable_for_offset<::DerivedFrom<hive<int>::iterator>, false>());
+STATIC_ASSERT(test_unwrappable_for_offset<::DerivedFrom<hive<int>::const_iterator>, false>());
+STATIC_ASSERT(test_unwrappable_for_offset<::DerivedFrom<hive<int>::reverse_iterator>, false>());
+STATIC_ASSERT(test_unwrappable_for_offset<::DerivedFrom<hive<int>::const_reverse_iterator>, false>());
+#endif // _HAS_CXX26

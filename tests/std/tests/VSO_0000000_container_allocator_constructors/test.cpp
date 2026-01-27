@@ -7,6 +7,9 @@
 #include <deque>
 #include <forward_list>
 #include <functional>
+#if _HAS_CXX26
+#include <hive>
+#endif // _HAS_CXX26
 #include <initializer_list>
 #include <iterator>
 #include <list>
@@ -100,6 +103,12 @@ int main() {
     list<int, Mallocator<int>>(42, Mallocator<int>(C));
     vector<int, Mallocator<int>>(42, Mallocator<int>(C));
     vector<bool, Mallocator<bool>>(42, Mallocator<bool>(C));
+
+#if _HAS_CXX26
+    hive<int8_t, Mallocator<int8_t>>(42, Mallocator<int8_t>(C));
+    hive<int16_t, Mallocator<int16_t>>(42, Mallocator<int16_t>(C));
+    hive<int64_t, Mallocator<int64_t>>(42, Mallocator<int64_t>(C));
+#endif // _HAS_CXX26
 
     const pair<int, int> map_input[]                           = {{42, 1729}, {1, 2}, {3, 4}};
     const initializer_list<pair<const int, int>> map_init_list = {{42, 1729}, {1, 2}, {3, 4}}; // lifetime extended

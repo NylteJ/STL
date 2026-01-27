@@ -22,6 +22,10 @@
 #include <future>
 #endif // _M_CEE_PURE
 
+#if _HAS_CXX26
+#include <hive>
+#endif // _HAS_CXX26
+
 int g_mallocs = 0;
 
 // Also test DevDiv-483844 and DevDiv-781187, minimal allocator requirements.
@@ -106,6 +110,12 @@ int main() {
     test<unordered_multiset<int, hash<int>, equal_to<int>, Mallocator<int>>>();
 
     test<basic_string<char, char_traits<char>, Mallocator<char>>>();
+
+#if _HAS_CXX26
+    test<hive<char, Mallocator<char>>>();
+    test<hive<short, Mallocator<short>>>();
+    test<hive<int, Mallocator<int>>>();
+#endif // _HAS_CXX26
 
     test<match_results<const char*, Mallocator<csub_match>>>();
 

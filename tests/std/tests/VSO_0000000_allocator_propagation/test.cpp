@@ -9,6 +9,9 @@
 #include <deque>
 #include <forward_list>
 #include <functional>
+#if _HAS_CXX26
+#include <hive>
+#endif // _HAS_CXX26
 #include <initializer_list>
 #include <iterator>
 #include <list>
@@ -1815,6 +1818,20 @@ struct UnorderedMultiset {
     using type = unordered_multiset<int, hash<int>, equal_to<>, Alloc>;
 };
 
+#if _HAS_CXX26
+template <class T>
+struct Hive {
+    template <class Alloc>
+    struct Inner {
+        using type = hive<int, Alloc>;
+    };
+};
+
+template <class T, class Alloc>
+auto GetIter(hive<T, Alloc>& c) {
+    return c.begin();
+}
+#endif // _HAS_CXX26
 
 // Verify that stateful comparators are updated by <xtree>'s copy assign, move assign, and swap.
 void test_comparator_updates() {
@@ -1892,6 +1909,13 @@ int main() {
     test_flist();
     test_string();
     test_vb();
+
+#if _HAS_CXX26
+    // Hive happens to match unordered_multiset's behavior closely enough that the same tests work.
+    test_set<Hive<uint8_t>::Inner>();
+    test_set<Hive<short>::Inner>();
+    test_set<Hive<int>::Inner>();
+#endif // _HAS_CXX26
 
     test_map<OrderedMap>();
     test_map<OrderedMultimap>();

@@ -83,6 +83,7 @@ set(HEADERS
     ${CMAKE_CURRENT_LIST_DIR}/inc/future
     ${CMAKE_CURRENT_LIST_DIR}/inc/generator
     ${CMAKE_CURRENT_LIST_DIR}/inc/header-units.json
+    ${CMAKE_CURRENT_LIST_DIR}/inc/hive
     ${CMAKE_CURRENT_LIST_DIR}/inc/initializer_list
     ${CMAKE_CURRENT_LIST_DIR}/inc/iomanip
     ${CMAKE_CURRENT_LIST_DIR}/inc/ios

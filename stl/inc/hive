@@ -49,45 +49,45 @@ public:
 
     // [hive.cons], construct/copy/destroy
     constexpr hive() noexcept(noexcept(_Alloc())) : hive(_Alloc()) {}
-    constexpr explicit hive(const _Alloc&) noexcept;
+    constexpr explicit hive(const _Alloc& _Allocator) noexcept;
     constexpr explicit hive(hive_limits _Block_limits) : hive(_Block_limits, _Alloc()) {}
-    constexpr hive(hive_limits _Block_limits, const _Alloc&);
+    constexpr hive(hive_limits _Block_limits, const _Alloc& _Allocator);
 
-    explicit hive(size_type _Count, const _Alloc& = _Alloc());
-    hive(size_type _Count, hive_limits _Block_limits, const _Alloc& = _Alloc());
+    explicit hive(size_type _Count, const _Alloc& _Allocator = _Alloc());
+    hive(size_type _Count, hive_limits _Block_limits, const _Alloc& _Allocator = _Alloc());
 
-    hive(size_type _Count, const _Ty& _Val, const _Alloc& = _Alloc());
-    hive(size_type _Count, const _Ty& _Val, hive_limits _Block_limits, const _Alloc& = _Alloc());
+    hive(size_type _Count, const _Ty& _Val, const _Alloc& _Allocator = _Alloc());
+    hive(size_type _Count, const _Ty& _Val, hive_limits _Block_limits, const _Alloc& _Allocator = _Alloc());
 
     template <_Iterator_for_container _Iter>
-    hive(_Iter _First, _Iter _Last, const _Alloc& = _Alloc());
+    hive(_Iter _First, _Iter _Last, const _Alloc& _Allocator = _Alloc());
     template <_Iterator_for_container _Iter>
-    hive(_Iter _First, _Iter _Last, hive_limits _Block_limits, const _Alloc& = _Alloc());
+    hive(_Iter _First, _Iter _Last, hive_limits _Block_limits, const _Alloc& _Allocator = _Alloc());
 
     template <_Container_compatible_range<_Ty> _Rng>
-    hive(from_range_t, _Rng&& _Range, const _Alloc& = _Alloc());
+    hive(from_range_t, _Rng&& _Range, const _Alloc& _Allocator = _Alloc());
     template <_Container_compatible_range<_Ty> _Rng>
-    hive(from_range_t, _Rng&& _Range, hive_limits _Block_limits, const _Alloc& = _Alloc());
+    hive(from_range_t, _Rng&& _Range, hive_limits _Block_limits, const _Alloc& _Allocator = _Alloc());
 
     hive(const hive& _Right);
-    hive(hive&&) noexcept;
+    hive(hive&& _Right) noexcept;
     hive(const hive& _Right, const type_identity_t<_Alloc>& _Allocator);
-    hive(hive&&, const type_identity_t<_Alloc>& _Allocator);
+    hive(hive&& _Right, const type_identity_t<_Alloc>& _Allocator);
 
-    hive(initializer_list<_Ty> _Ilist, const _Alloc& = _Alloc());
-    hive(initializer_list<_Ty> _Ilist, hive_limits _Block_limits, const _Alloc& = _Alloc());
+    hive(initializer_list<_Ty> _Ilist, const _Alloc& _Allocator = _Alloc());
+    hive(initializer_list<_Ty> _Ilist, hive_limits _Block_limits, const _Alloc& _Allocator = _Alloc());
 
     ~hive();
 
     hive& operator=(const hive& _Right);
     hive& operator=(hive&& _Right) noexcept(_Choose_pocma_v<_Alty> != _Pocma_values::_No_propagate_allocators);
-    hive& operator=(initializer_list<_Ty>);
+    hive& operator=(initializer_list<_Ty> _Ilist);
     template <_Iterator_for_container _Iter>
     void assign(_Iter _First, _Iter _Last);
     template <_Container_compatible_range<_Ty> _Rng>
     void assign_range(_Rng&& _Range);
     void assign(size_type _Count, const _Ty& _Val);
-    void assign(initializer_list<_Ty>);
+    void assign(initializer_list<_Ty> _Ilist);
 
     allocator_type get_allocator() const noexcept;
 
@@ -128,11 +128,11 @@ public:
     template <class... _Valty>
     iterator emplace(_Valty&&... _Val);
     template <class... _Valty>
-    iterator emplace_hint(const_iterator _Hint, _Valty&&... _Val);
+    iterator emplace_hint(const_iterator, _Valty&&... _Val);
     iterator insert(const _Ty& _Val);
     iterator insert(_Ty&& _Val);
-    iterator insert(const_iterator _Hint, const _Ty& _Val);
-    iterator insert(const_iterator _Hint, _Ty&& _Val);
+    iterator insert(const_iterator, const _Ty& _Val);
+    iterator insert(const_iterator, _Ty&& _Val);
 
     void insert(initializer_list<_Ty> _Ilist);
     template <_Container_compatible_range<_Ty> _Rng>

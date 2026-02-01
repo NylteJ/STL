@@ -89,27 +89,27 @@ public:
     void assign(size_type _Count, const _Ty& _Val);
     void assign(initializer_list<_Ty> _Ilist);
 
-    allocator_type get_allocator() const noexcept;
+    _NODISCARD allocator_type get_allocator() const noexcept;
 
     // iterators
-    iterator begin() noexcept;
-    const_iterator begin() const noexcept;
-    iterator end() noexcept;
-    const_iterator end() const noexcept;
-    reverse_iterator rbegin() noexcept;
-    const_reverse_iterator rbegin() const noexcept;
-    reverse_iterator rend() noexcept;
-    const_reverse_iterator rend() const noexcept;
-    const_iterator cbegin() const noexcept;
-    const_iterator cend() const noexcept;
-    const_reverse_iterator crbegin() const noexcept;
-    const_reverse_iterator crend() const noexcept;
+    _NODISCARD iterator begin() noexcept;
+    _NODISCARD const_iterator begin() const noexcept;
+    _NODISCARD iterator end() noexcept;
+    _NODISCARD const_iterator end() const noexcept;
+    _NODISCARD reverse_iterator rbegin() noexcept;
+    _NODISCARD const_reverse_iterator rbegin() const noexcept;
+    _NODISCARD reverse_iterator rend() noexcept;
+    _NODISCARD const_reverse_iterator rend() const noexcept;
+    _NODISCARD const_iterator cbegin() const noexcept;
+    _NODISCARD const_iterator cend() const noexcept;
+    _NODISCARD const_reverse_iterator crbegin() const noexcept;
+    _NODISCARD const_reverse_iterator crend() const noexcept;
 
     // [hive.capacity], capacity
-    bool empty() const noexcept;
-    size_type size() const noexcept;
-    size_type max_size() const noexcept;
-    size_type capacity() const noexcept;
+    _NODISCARD_EMPTY_MEMBER bool empty() const noexcept;
+    _NODISCARD size_type size() const noexcept;
+    _NODISCARD size_type max_size() const noexcept;
+    _NODISCARD size_type capacity() const noexcept;
 
     void reserve(size_type _New_capacity);
 
@@ -118,9 +118,9 @@ public:
     void trim_capacity() noexcept;
     void trim_capacity(size_type _Min_capacity) noexcept;
 
-    constexpr hive_limits block_capacity_limits() const noexcept;
-    static constexpr hive_limits block_capacity_default_limits() noexcept;
-    static constexpr hive_limits block_capacity_hard_limits() noexcept;
+    _NODISCARD constexpr hive_limits block_capacity_limits() const noexcept;
+    _NODISCARD static constexpr hive_limits block_capacity_default_limits() noexcept;
+    _NODISCARD static constexpr hive_limits block_capacity_hard_limits() noexcept;
 
     void reshape(hive_limits _New_limits);
 
@@ -158,8 +158,8 @@ public:
     template <class _Pr2 = less<_Ty>>
     void sort(_Pr2 _Pred = _Pr2());
 
-    iterator get_iterator(const_pointer _Ptr) noexcept;
-    const_iterator get_iterator(const_pointer _Ptr) const noexcept;
+    _NODISCARD iterator get_iterator(const_pointer _Ptr) noexcept;
+    _NODISCARD const_iterator get_iterator(const_pointer _Ptr) const noexcept;
 
 private:
     // hive_limits current - limits = implementation - defined; // exposition only

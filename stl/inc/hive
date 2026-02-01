@@ -164,10 +164,10 @@ template <class _Ty, class _Alloc>
 void swap(hive<_Ty, _Alloc>& _Left, hive<_Ty, _Alloc>& _Right) noexcept(noexcept(_Left.swap(_Right)));
 
 template <class _Ty, class _Alloc, class _Uty = _Ty>
-typename hive<_Ty, _Alloc>::size_type erase(hive<_Ty, _Alloc>& _Cont, const _Uty& _Val);
+hive<_Ty, _Alloc>::size_type erase(hive<_Ty, _Alloc>& _Cont, const _Uty& _Val);
 
 template <class _Ty, class _Alloc, class _Pr>
-typename hive<_Ty, _Alloc>::size_type erase_if(hive<_Ty, _Alloc>& _Cont, _Pr _Pred);
+hive<_Ty, _Alloc>::size_type erase_if(hive<_Ty, _Alloc>& _Cont, _Pr _Pred);
 
 namespace pmr {
     template <class _Ty>

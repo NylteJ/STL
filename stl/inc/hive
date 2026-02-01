@@ -23,14 +23,14 @@ _STL_DISABLE_CLANG_WARNINGS
 #undef new
 
 _STD_BEGIN
-struct hive_limits {
+_EXPORT_STD struct hive_limits {
     size_t min;
     size_t max;
     constexpr hive_limits(size_t _Min, size_t _Max) noexcept : min(_Min), max(_Max) {}
 };
 
 // [hive], class template hive
-template <class _Ty, class _Alloc = allocator<_Ty>>
+_EXPORT_STD template <class _Ty, class _Alloc = allocator<_Ty>>
 class hive {
 public:
     // types
@@ -160,17 +160,17 @@ hive(from_range_t, _Rng&&, _Alloc = _Alloc()) -> hive<_RANGES range_value_t<_Rng
 template <_RANGES input_range _Rng, _Allocator_for_container _Alloc = allocator<_RANGES range_value_t<_Rng>>>
 hive(from_range_t, _Rng&&, hive_limits, _Alloc = _Alloc()) -> hive<_RANGES range_value_t<_Rng>, _Alloc>;
 
-template <class _Ty, class _Alloc>
+_EXPORT_STD template <class _Ty, class _Alloc>
 void swap(hive<_Ty, _Alloc>& _Left, hive<_Ty, _Alloc>& _Right) noexcept(noexcept(_Left.swap(_Right)));
 
-template <class _Ty, class _Alloc, class _Uty = _Ty>
+_EXPORT_STD template <class _Ty, class _Alloc, class _Uty = _Ty>
 hive<_Ty, _Alloc>::size_type erase(hive<_Ty, _Alloc>& _Cont, const _Uty& _Val);
 
-template <class _Ty, class _Alloc, class _Pr>
+_EXPORT_STD template <class _Ty, class _Alloc, class _Pr>
 hive<_Ty, _Alloc>::size_type erase_if(hive<_Ty, _Alloc>& _Cont, _Pr _Pred);
 
 namespace pmr {
-    template <class _Ty>
+    _EXPORT_STD template <class _Ty>
     using hive = _STD hive<_Ty, polymorphic_allocator<_Ty>>;
 }
 _STD_END

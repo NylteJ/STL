@@ -26,7 +26,7 @@ _STD_BEGIN
 _EXPORT_STD struct hive_limits {
     size_t min;
     size_t max;
-    constexpr hive_limits(size_t _Min, size_t _Max) noexcept : min(_Min), max(_Max) {}
+    constexpr hive_limits(size_t _Min, size_t _Max) noexcept : min{_Min}, max{_Max} {}
 };
 
 // [hive], class template hive

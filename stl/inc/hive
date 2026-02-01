@@ -44,8 +44,8 @@ public:
     using difference_type        = /*implementation - defined*/; // see [container.requirements]
     using iterator               = /*implementation - defined*/; // see [container.requirements]
     using const_iterator         = /*implementation - defined*/; // see [container.requirements]
-    using reverse_iterator       = std::reverse_iterator<iterator>; // see [container.requirements]
-    using const_reverse_iterator = std::reverse_iterator<const_iterator>; // see [container.requirements]
+    using reverse_iterator       = _STD reverse_iterator<iterator>; // see [container.requirements]
+    using const_reverse_iterator = _STD reverse_iterator<const_iterator>; // see [container.requirements]
 
     // [hive.cons], construct/copy/destroy
     constexpr hive() noexcept(noexcept(_Alloc())) : hive(_Alloc()) {}
@@ -154,11 +154,11 @@ hive(_Iter, _Iter, _Alloc = _Alloc()) -> hive<_Iter_value_t<_Iter>, _Alloc>;
 template <_Iterator_for_container _Iter, _Allocator_for_container _Alloc = allocator<_Iter_value_t<_Iter>>>
 hive(_Iter, _Iter, hive_limits, _Alloc = _Alloc()) -> hive<_Iter_value_t<_Iter>, _Alloc>;
 
-template <ranges::input_range _Rng, _Allocator_for_container _Alloc = allocator<ranges::range_value_t<_Rng>>>
-hive(from_range_t, _Rng&&, _Alloc = _Alloc()) -> hive<ranges::range_value_t<_Rng>, _Alloc>;
+template <_RANGES input_range _Rng, _Allocator_for_container _Alloc = allocator<_RANGES range_value_t<_Rng>>>
+hive(from_range_t, _Rng&&, _Alloc = _Alloc()) -> hive<_RANGES range_value_t<_Rng>, _Alloc>;
 
-template <ranges::input_range _Rng, _Allocator_for_container _Alloc = allocator<ranges::range_value_t<_Rng>>>
-hive(from_range_t, _Rng&&, hive_limits, _Alloc = _Alloc()) -> hive<ranges::range_value_t<_Rng>, _Alloc>;
+template <_RANGES input_range _Rng, _Allocator_for_container _Alloc = allocator<_RANGES range_value_t<_Rng>>>
+hive(from_range_t, _Rng&&, hive_limits, _Alloc = _Alloc()) -> hive<_RANGES range_value_t<_Rng>, _Alloc>;
 
 template <class _Ty, class _Alloc>
 void swap(hive<_Ty, _Alloc>& _Left, hive<_Ty, _Alloc>& _Right) noexcept(noexcept(_Left.swap(_Right)));
@@ -171,7 +171,7 @@ hive<_Ty, _Alloc>::size_type erase_if(hive<_Ty, _Alloc>& _Cont, _Pr _Pred);
 
 namespace pmr {
     template <class _Ty>
-    using hive = std::hive<_Ty, polymorphic_allocator<_Ty>>;
+    using hive = _STD hive<_Ty, polymorphic_allocator<_Ty>>;
 }
 _STD_END
 

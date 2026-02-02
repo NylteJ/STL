@@ -66,17 +66,17 @@ public:
     using const_pointer   = _Alty_traits::const_pointer;
     using reference       = value_type&;
     using const_reference = const value_type&;
-    using size_type       = _Alty_traits::size_type; // see [container.requirements]
-    using difference_type = _Alty_traits::difference_type; // see [container.requirements]
+    using size_type       = _Alty_traits::size_type;
+    using difference_type = _Alty_traits::difference_type;
 
 private:
     using _Scary_val = _Hive_val_provider<_Ty, size_type, difference_type, pointer, const_pointer>::_Val;
 
 public:
-    using iterator               = _Scary_val::iterator; // see [container.requirements]
-    using const_iterator         = _Scary_val::const_iterator; // see [container.requirements]
-    using reverse_iterator       = _STD reverse_iterator<iterator>; // see [container.requirements]
-    using const_reverse_iterator = _STD reverse_iterator<const_iterator>; // see [container.requirements]
+    using iterator               = _Scary_val::iterator;
+    using const_iterator         = _Scary_val::const_iterator;
+    using reverse_iterator       = _STD reverse_iterator<iterator>;
+    using const_reverse_iterator = _STD reverse_iterator<const_iterator>;
 
     // [hive.cons], construct/copy/destroy
     constexpr hive() noexcept(noexcept(_Alloc())) : hive(_Alloc()) {}

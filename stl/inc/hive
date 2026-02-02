@@ -29,6 +29,23 @@ _EXPORT_STD struct hive_limits {
     constexpr hive_limits(size_t _Min, size_t _Max) noexcept : min{_Min}, max{_Max} {}
 };
 
+template <class _ValueType, class _SizeType, class _DifferenceType, class _Pointer, class _ConstPointer>
+struct _Hive_val_provider {
+    struct _Val {
+        using value_type      = _ValueType;
+        using pointer         = _Pointer;
+        using const_pointer   = _ConstPointer;
+        using reference       = value_type&;
+        using const_reference = const value_type&;
+        using size_type       = _SizeType;
+        using difference_type = _DifferenceType;
+        using iterator        = /* TODO */;
+        using const_iterator  = /* TODO */;
+
+        // hive_limits current - limits = implementation - defined; // exposition only
+    };
+};
+
 // [hive], class template hive
 _EXPORT_STD template <class _Ty, class _Alloc = allocator<_Ty>>
 class hive {
@@ -43,16 +60,21 @@ public:
                                     "because of [container.requirements].");
 
     // types
-    using value_type             = _Ty;
-    using allocator_type         = _Alloc;
-    using pointer                = _Alty_traits::pointer;
-    using const_pointer          = _Alty_traits::const_pointer;
-    using reference              = value_type&;
-    using const_reference        = const value_type&;
-    using size_type              = _Alty_traits::size_type; // see [container.requirements]
-    using difference_type        = _Alty_traits::difference_type; // see [container.requirements]
-    using iterator               = /*implementation - defined*/; // see [container.requirements]
-    using const_iterator         = /*implementation - defined*/; // see [container.requirements]
+    using value_type      = _Ty;
+    using allocator_type  = _Alloc;
+    using pointer         = _Alty_traits::pointer;
+    using const_pointer   = _Alty_traits::const_pointer;
+    using reference       = value_type&;
+    using const_reference = const value_type&;
+    using size_type       = _Alty_traits::size_type; // see [container.requirements]
+    using difference_type = _Alty_traits::difference_type; // see [container.requirements]
+
+private:
+    using _Scary_val = _Hive_val_provider<_Ty, size_type, difference_type, pointer, const_pointer>::_Val;
+
+public:
+    using iterator               = _Scary_val::iterator; // see [container.requirements]
+    using const_iterator         = _Scary_val::const_iterator; // see [container.requirements]
     using reverse_iterator       = _STD reverse_iterator<iterator>; // see [container.requirements]
     using const_reverse_iterator = _STD reverse_iterator<const_iterator>; // see [container.requirements]
 
@@ -171,7 +193,7 @@ public:
     _NODISCARD const_iterator get_iterator(const_pointer _Ptr) const noexcept;
 
 private:
-    // hive_limits current - limits = implementation - defined; // exposition only
+    _Scary_val _Myval;
 };
 
 template <_Iterator_for_container _Iter, _Allocator_for_container _Alloc = allocator<_Iter_value_t<_Iter>>>

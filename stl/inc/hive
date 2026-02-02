@@ -32,16 +32,20 @@ _EXPORT_STD struct hive_limits {
 // [hive], class template hive
 _EXPORT_STD template <class _Ty, class _Alloc = allocator<_Ty>>
 class hive {
+private:
+    using _Alty        = _Rebind_alloc_t<_Alloc, _Ty>;
+    using _Alty_traits = allocator_traits<_Alty>;
+
 public:
     // types
     using value_type             = _Ty;
     using allocator_type         = _Alloc;
-    using pointer                = allocator_traits<_Alloc>::pointer;
-    using const_pointer          = allocator_traits<_Alloc>::const_pointer;
+    using pointer                = _Alty_traits::pointer;
+    using const_pointer          = _Alty_traits::const_pointer;
     using reference              = value_type&;
     using const_reference        = const value_type&;
-    using size_type              = /*implementation - defined*/; // see [container.requirements]
-    using difference_type        = /*implementation - defined*/; // see [container.requirements]
+    using size_type              = _Alty_traits::size_type; // see [container.requirements]
+    using difference_type        = _Alty_traits::difference_type; // see [container.requirements]
     using iterator               = /*implementation - defined*/; // see [container.requirements]
     using const_iterator         = /*implementation - defined*/; // see [container.requirements]
     using reverse_iterator       = _STD reverse_iterator<iterator>; // see [container.requirements]

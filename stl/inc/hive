@@ -397,6 +397,15 @@ public:
     using const_reverse_iterator = _STD reverse_iterator<const_iterator>;
 
 private:
+    static constexpr void _Verify_limits([[maybe_unused]] hive_limits _Limits) noexcept {
+#if _ITERATOR_DEBUG_LEVEL != 0
+        _STL_VERIFY(_Limits.min <= _Limits.max, "hive limits min greater than max");
+        const auto _Hard_limits = block_capacity_hard_limits();
+        _STL_VERIFY(
+            _Hard_limits.min <= _Limits.min && _Limits.max <= _Hard_limits.max, "hive limits outside hard limits");
+#endif // _ITERATOR_DEBUG_LEVEL != 0
+    }
+
 #ifdef _ENABLE_STL_INTERNAL_CHECK
     constexpr void _Check_invariants() const noexcept {
         const auto _Sent = const_cast<_Scary_val&>(_Myval)._Sent();
@@ -473,9 +482,13 @@ private:
 public:
     // [hive.cons], construct/copy/destroy
     constexpr hive() noexcept(noexcept(_Alloc())) : hive(_Alloc()) {}
-    constexpr explicit hive(const _Alloc& _Allocator) noexcept;
-    constexpr explicit hive(hive_limits _Block_limits) : hive(_Block_limits, _Alloc()) {}
-    constexpr hive(hive_limits _Block_limits, const _Alloc& _Allocator);
+    constexpr explicit hive(const _Alloc& _Allocator) noexcept : hive(block_capacity_default_limits(), _Allocator) {}
+    constexpr explicit hive(hive_limits _Block_limits) noexcept(noexcept(_Alloc())) /* strengthened */
+        : hive(_Block_limits, _Alloc()) {}
+    constexpr hive(hive_limits _Block_limits, const _Alloc& _Allocator) noexcept /* strengthened */
+        : _Al(_Allocator), _Myval(_Block_limits) {
+        _Verify_limits(_Block_limits);
+    }
 
     explicit hive(size_type _Count, const _Alloc& _Allocator = _Alloc());
     hive(size_type _Count, hive_limits _Block_limits, const _Alloc& _Allocator = _Alloc());

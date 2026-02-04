@@ -359,6 +359,11 @@ public:
     using difference_type = _Alty_traits::difference_type;
 
 private:
+    static constexpr bool _Alty_uses_default_max_size =
+        disjunction_v<_Is_default_allocator<_Alloc>, negation<_Has_max_size<_Alty>>>;
+    static constexpr bool _Max_limit_may_be_zero =
+        !_Alty_uses_default_max_size || _STD _Max_limit<size_type>() / sizeof(_Ty) == 0;
+
     using _Scary_val = _Hive_val_provider<_Ty, size_type, difference_type, pointer, const_pointer>::_Val;
 
     using _Block_size_t = _Scary_val::_Block_size_t;
@@ -380,6 +385,10 @@ private:
     using _Block_iter_reserved = _Scary_val::_Block_iter_reserved;
 
     static constexpr auto _Sentinel_ord_id = _Scary_val::_Sentinel_ord_id;
+
+    // note that this may exceed `block_capacity_hard_limits().max` due to N5032 [hive.overview]/5.3
+    static constexpr size_t _Hard_limits_max =
+        _STD min<size_t>(_STD _Max_limit<_Block_size_t>(), _STD _Max_limit<size_type>());
 
 public:
     using iterator               = _Scary_val::iterator;
@@ -535,9 +544,39 @@ public:
     void trim_capacity() noexcept;
     void trim_capacity(size_type _Min_capacity) noexcept;
 
-    _NODISCARD constexpr hive_limits block_capacity_limits() const noexcept;
-    _NODISCARD static constexpr hive_limits block_capacity_default_limits() noexcept;
-    _NODISCARD static constexpr hive_limits block_capacity_hard_limits() noexcept;
+    _NODISCARD constexpr hive_limits block_capacity_limits() const noexcept {
+        return _Myval._Limits;
+    }
+
+private:
+    static constexpr size_t _Default_limits_max =
+        (_STD min) ((_STD max) (65536uz / sizeof(_Union), 2uz), _Hard_limits_max);
+    static constexpr size_t _Default_limits_min = 1; // TODO
+
+public:
+    _NODISCARD static constexpr hive_limits block_capacity_default_limits() noexcept {
+        const auto _Hard_limits = block_capacity_hard_limits();
+        return {_STD clamp(_Default_limits_min, _Hard_limits.min, _Hard_limits.max),
+            _STD clamp(_Default_limits_max, _Hard_limits.min, _Hard_limits.max)};
+    }
+
+    _NODISCARD static constexpr hive_limits block_capacity_hard_limits() noexcept {
+        size_t _Allocator_max; // N5032 [hive.overview]/5.3
+        if constexpr (_Alty_uses_default_max_size) {
+            _Allocator_max = static_cast<size_t>(_STD _Max_limit<size_type>() / sizeof(_Ty));
+        } else if constexpr (is_default_constructible_v<_Alty>) {
+            _Allocator_max = static_cast<size_t>(_Alty_traits::max_size(_Alty()));
+        } else {
+            // FIXME: What should we do? (Also, does this requirement actually make sense?)
+            _Allocator_max = static_cast<size_t>(_STD _Max_limit<size_type>() / sizeof(_Union));
+        }
+
+        if (_Allocator_max == 0) {
+            _STL_INTERNAL_CHECK(_Max_limit_may_be_zero);
+            return {0, 0};
+        }
+        return {1, (_STD min) (_Allocator_max, _Hard_limits_max)};
+    }
 
     void reshape(hive_limits _New_limits);
 

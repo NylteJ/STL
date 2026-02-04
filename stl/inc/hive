@@ -29,6 +29,78 @@ _EXPORT_STD struct hive_limits {
     constexpr hive_limits(size_t _Min, size_t _Max) noexcept : min{_Min}, max{_Max} {}
 };
 
+template <size_t _ValueSize>
+using _Hive_skipfield_t = conditional_t<_ValueSize >= 4, uint16_t, uint8_t>;
+
+template <class _ValueT>
+struct _Hive_union_provider {
+    union _Union {
+        struct _Free_list_node {
+            using _Index = _Hive_skipfield_t<sizeof(_ValueT)>;
+            _Index _Prev;
+            _Index _Next;
+        };
+
+        _ValueT _Value;
+        _Free_list_node _Free;
+
+        ~_Union() = delete; // FIXME: unnecessary in C++26
+    };
+};
+
+template <class _ValueT, class _HiveSizeT, class _AnyPtrT>
+struct _Hive_block_provider {
+    struct _Block {
+        using _Union         = _Hive_union_provider<_ValueT>::_Union;
+        using _Union_ptr     = _Rebind_pointer_t<_AnyPtrT, _Union>;
+        using _Block_ptr     = _Rebind_pointer_t<_AnyPtrT, _Block>;
+        using _Skipfield_t   = _Hive_skipfield_t<sizeof(_ValueT)>;
+        using _Skipfield_ptr = _Rebind_pointer_t<_AnyPtrT, _Skipfield_t>;
+        using _Order_id_t    = _HiveSizeT;
+        using _Size_t        = _Skipfield_t;
+
+        static constexpr auto _Free_npos = _STD _Max_limit<_Size_t>();
+
+        _Block_ptr _Next; // active blocks list and reserved blocks list
+        _Block_ptr _Prev; // active blocks list
+
+        // blocks with unused memory (due to element erasure or unused tail space)
+        _Block_ptr _Next_nonfull;
+        _Block_ptr _Prev_nonfull;
+
+        _Union_ptr _Data;
+
+        _Skipfield_ptr _Skip; // has one extra 0 past the end (i.e. _Skip[_Capacity] == 0)
+
+        _Size_t _Capacity;
+        _Size_t _Size;
+
+        _Size_t _First_free; // first index of the first skipblock in the free list
+        // Note: The free list node data is stored at the end of the skipblock, but _First_free references the beginning
+        // of the skipblock. This way, the insertion position is directly provided by _First_free, and the node data
+        // only needs to be updated once per skipblock when it is filled.
+
+        _Order_id_t _Order_id;
+
+        _NODISCARD constexpr _Size_t _First_element() const noexcept {
+            return _Skip[0];
+        }
+
+        _NODISCARD constexpr bool _Full() const noexcept {
+            _STL_INTERNAL_CHECK(_Size <= _Capacity);
+            return _Size == _Capacity;
+        }
+
+        // first + [0, second)
+        _NODISCARD constexpr pair<_Size_t, _Size_t> _First_free_range() {
+            _STL_INTERNAL_CHECK(!_Full());
+            _STL_INTERNAL_CHECK(_First_free < _Capacity);
+            _STL_INTERNAL_CHECK(_Skip[_First_free] > 0);
+            return {_First_free, _Skip[_First_free]};
+        }
+    };
+};
+
 template <class _ValueType, class _SizeType, class _DifferenceType, class _Pointer, class _ConstPointer>
 struct _Hive_val_provider {
     struct _Val {
@@ -41,6 +113,13 @@ struct _Hive_val_provider {
         using difference_type = _DifferenceType;
         using iterator        = /* TODO */;
         using const_iterator  = /* TODO */;
+
+        using _Block        = _Hive_block_provider<value_type, size_type, pointer>::_Block;
+        using _Block_ptr    = _Block::_Block_ptr;
+        using _Block_size_t = _Block::_Size_t;
+
+        using _Union     = _Block::_Union;
+        using _Union_ptr = _Block::_Union_ptr;
 
         // hive_limits current - limits = implementation - defined; // exposition only
     };
@@ -72,6 +151,18 @@ public:
 private:
     using _Scary_val = _Hive_val_provider<_Ty, size_type, difference_type, pointer, const_pointer>::_Val;
 
+    using _Block_size_t = _Scary_val::_Block_size_t;
+
+    using _Block        = _Scary_val::_Block;
+    using _Alblk        = _Rebind_alloc_t<_Alloc, _Block>;
+    using _Alblk_traits = allocator_traits<_Alblk>;
+    using _Block_ptr    = _Scary_val::_Block_ptr;
+
+    using _Union          = _Scary_val::_Union;
+    using _Alunion        = _Rebind_alloc_t<_Alloc, _Union>;
+    using _Alunion_traits = allocator_traits<_Alunion>;
+    using _Union_ptr      = _Scary_val::_Union_ptr;
+
 public:
     using iterator               = _Scary_val::iterator;
     using const_iterator         = _Scary_val::const_iterator;
@@ -80,7 +171,72 @@ public:
 
 private:
 #ifdef _ENABLE_STL_INTERNAL_CHECK
-    constexpr void _Check_invariants() const noexcept {}
+    constexpr void _Check_invariants() const noexcept {
+        size_type _Actual_size = 0;
+        size_type _Actual_cap  = 0;
+        for (auto _Blk = /* first active block */; _Blk != /* past-the-end iterator */; ++_Blk) {
+            _STL_INTERNAL_CHECK(_Blk->_Size > 0);
+
+            _STL_INTERNAL_CHECK(_Blk->_Skip[_Blk->_Capacity] == 0);
+
+            for (_Block_size_t _Idx = 0; _Idx != _Blk->_Capacity;) {
+                if (_Blk->_Skip[_Idx] != 0) {
+                    const auto _Length = _Blk->_Skip[_Idx];
+                    const auto _Tail   = _Idx + _Length - 1;
+                    _STL_INTERNAL_CHECK(0 < _Length && _Length <= _Blk->_Capacity - _Idx);
+                    _STL_INTERNAL_CHECK(_Blk->_Skip[_Idx] == _Blk->_Skip[_Tail]);
+                    _Idx += _Length;
+                } else {
+                    ++_Idx;
+                }
+            }
+
+            if (!_Blk->_Full()) {
+                const auto _First_free = _Blk->_First_free;
+                const auto _First_node = _First_free + _Blk->_Skip[_First_free] - 1;
+                _STL_INTERNAL_CHECK(_Blk->_Data[_First_node]._Free._Prev == _Block::_Free_npos);
+
+                _Block_size_t _Space_count = 0;
+                for (auto _Node = _First_node;;) {
+                    const auto _Next_node = _Blk->_Data[_Node]._Free._Next;
+
+                    _STL_INTERNAL_CHECK(_Blk->_Skip[_Node] > 0);
+                    _Space_count += _Blk->_Skip[_Node];
+
+                    if (_Next_node == _Block::_Free_npos) {
+                        break;
+                    }
+                    _STL_INTERNAL_CHECK(_Blk->_Data[_Next_node]._Free._Prev == _Node);
+                    _Node = _Next_node;
+                }
+                _STL_INTERNAL_CHECK(_Space_count == _Blk->_Capacity - _Blk->_Size);
+            }
+
+            _STL_INTERNAL_CHECK(_Blk->_Next->_Prev == _Blk);
+            _STL_INTERNAL_CHECK(_Blk->_Capacity >= _Blk->_Size);
+            _STL_INTERNAL_CHECK(_Myval./* current-limits */./* contains */ (_Blk->_Capacity));
+            _STL_INTERNAL_CHECK(_Blk->_Order_id < _Blk->_Next->_Order_id);
+
+            _Actual_size += _Blk->_Size;
+            _Actual_cap += _Blk->_Capacity;
+        }
+        _STL_INTERNAL_CHECK(_Myval./* size */ == _Actual_size);
+
+        size_type _Active_space_count = 0;
+        for (auto _Blk = /* first nonfull block */; _Blk != /* past-the-end iterator */; ++_Blk) {
+            _STL_INTERNAL_CHECK(_Blk->_Next_nonfull->_Prev_nonfull == _Blk);
+            const auto _Space_count = _Blk->_Capacity - _Blk->_Size;
+            _STL_INTERNAL_CHECK(_Space_count > 0);
+            _Active_space_count += static_cast<size_type>(_Space_count);
+        }
+        _STL_INTERNAL_CHECK(_Active_space_count == _Actual_cap - _Actual_size);
+
+        for (auto _Blk = /* first reserved block */; _Blk != nullptr; ++_Blk) {
+            _STL_INTERNAL_CHECK(_Myval./* current-limits */./* contains */ (_Blk->_Capacity));
+            _Actual_cap += _Blk->_Capacity;
+        }
+        _STL_INTERNAL_CHECK(_Myval./* capacity */ == _Actual_cap);
+    }
 #endif // ^^^ defined(_ENABLE_STL_INTERNAL_CHECK) ^^^
 
 public:

@@ -427,6 +427,10 @@ struct _Hive_block_iterators_provider {
     using _Reserved_iterator = _Block_iter<&_BlockT::_Next, nullptr>;
 };
 
+// [hive], class template hive
+_EXPORT_STD template <class _Ty, class _Alloc = allocator<_Ty>>
+class hive;
+
 template <class _ValueType, class _SizeType, class _DifferenceType, class _Pointer, class _ConstPointer>
 struct _Hive_val_provider {
     struct _Val : _Hive_val_empty_base {
@@ -482,8 +486,7 @@ struct _Hive_val_provider {
     };
 };
 
-// [hive], class template hive
-_EXPORT_STD template <class _Ty, class _Alloc = allocator<_Ty>>
+template <class _Ty, class _Alloc>
 class hive {
 private:
     using _Alty        = _Rebind_alloc_t<_Alloc, _Ty>;

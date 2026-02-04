@@ -11,6 +11,7 @@
 _EMIT_STL_WARNING(STL4038, "The contents of <hive> are available only with C++26 or later.");
 #else // ^^^ !_HAS_CXX26 / _HAS_CXX26 vvv
 
+#include <algorithm>
 #include <compare> // see [compare.syn]
 #include <initializer_list> // see [initializer.list.syn]
 #include <xpolymorphic_allocator.h>
@@ -47,6 +48,30 @@ struct _Hive_limits_small {
 
     /* implicit */ constexpr operator hive_limits() const noexcept {
         return {min, max};
+    }
+
+    constexpr bool operator==(const _Hive_limits_small&) const = default;
+
+    _NODISCARD constexpr bool _Contains(size_t _Value) const noexcept {
+        return min <= _Value && _Value <= max;
+    }
+    _NODISCARD constexpr bool _Contains(_Hive_limits_small _Other) const noexcept {
+        return min <= _Other.min && _Other.max <= max;
+    }
+
+    template <integral _ValueT>
+    _NODISCARD constexpr _BlockSizeT _Clamp(_ValueT _Value) const noexcept {
+        _STL_INTERNAL_CHECK(_Value >= 0);
+        return static_cast<_BlockSizeT>(
+            _STD clamp(static_cast<size_t>(_Value), static_cast<size_t>(min), static_cast<size_t>(max)));
+    }
+
+    _NODISCARD constexpr bool _Overlaps(_Hive_limits_small _Other) const noexcept {
+        return min <= _Other.max && _Other.min <= max;
+    }
+
+    _NODISCARD static constexpr _Hive_limits_small _Union_of(_Hive_limits_small _Left, _Hive_limits_small _Right) {
+        return {(_STD min) (_Left.min, _Right.min), (_STD max) (_Left.max, _Right.max)};
     }
 };
 
@@ -409,7 +434,7 @@ private:
 
             _STL_INTERNAL_CHECK(_Blk->_Next->_Prev == _Blk);
             _STL_INTERNAL_CHECK(_Blk->_Capacity >= _Blk->_Size);
-            _STL_INTERNAL_CHECK(_Myval._Limits./* contains */ (_Blk->_Capacity));
+            _STL_INTERNAL_CHECK(_Myval._Limits._Contains(_Blk->_Capacity));
             _STL_INTERNAL_CHECK(_Blk->_Order_id < _Blk->_Next->_Order_id);
 
             _Actual_size += _Blk->_Size;
@@ -427,7 +452,7 @@ private:
         _STL_INTERNAL_CHECK(_Active_space_count == _Actual_cap - _Actual_size);
 
         for (auto _Blk = _Myval._Reserved_first; _Blk != nullptr; ++_Blk) {
-            _STL_INTERNAL_CHECK(_Myval._Limits./* contains */ (_Blk->_Capacity));
+            _STL_INTERNAL_CHECK(_Myval._Limits._Contains(_Blk->_Capacity));
             _Actual_cap += _Blk->_Capacity;
         }
         _STL_INTERNAL_CHECK(_Myval._Capacity == _Actual_cap);

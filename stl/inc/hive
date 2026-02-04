@@ -22,6 +22,10 @@ _STL_DISABLE_CLANG_WARNINGS
 #pragma push_macro("new")
 #undef new
 
+// TRANSITION, non-_Ugly attribute tokens
+#pragma push_macro("msvc")
+#undef msvc
+
 _STD_BEGIN
 _EXPORT_STD struct hive_limits {
     size_t min;
@@ -448,7 +452,9 @@ public:
     void assign(size_type _Count, const _Ty& _Val);
     void assign(initializer_list<_Ty> _Ilist);
 
-    _NODISCARD allocator_type get_allocator() const noexcept;
+    _NODISCARD allocator_type get_allocator() const noexcept {
+        return static_cast<allocator_type>(_Al);
+    }
 
     // iterators
     _NODISCARD iterator begin() noexcept;
@@ -521,6 +527,7 @@ public:
     _NODISCARD const_iterator get_iterator(const_pointer _Ptr) const noexcept;
 
 private:
+    _MSVC_NO_UNIQUE_ADDRESS _Alty _Al;
     _Scary_val _Myval;
 };
 
@@ -550,6 +557,9 @@ namespace pmr {
     using hive = _STD hive<_Ty, polymorphic_allocator<_Ty>>;
 }
 _STD_END
+
+// TRANSITION, non-_Ugly attribute tokens
+#pragma pop_macro("msvc")
 
 #pragma pop_macro("new")
 _STL_RESTORE_CLANG_WARNINGS

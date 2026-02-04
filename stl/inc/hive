@@ -33,6 +33,23 @@ _EXPORT_STD struct hive_limits {
     constexpr hive_limits(size_t _Min, size_t _Max) noexcept : min{_Min}, max{_Max} {}
 };
 
+template <class _BlockSizeT>
+struct _Hive_limits_small {
+    _BlockSizeT min;
+    _BlockSizeT max;
+
+    constexpr _Hive_limits_small(_BlockSizeT _Min, _BlockSizeT _Max) noexcept : min{_Min}, max{_Max} {}
+
+    /* implicit */ constexpr _Hive_limits_small(hive_limits _Limits) noexcept
+        : min{static_cast<_BlockSizeT>(_Limits.min)}, max{static_cast<_BlockSizeT>(_Limits.max)} {
+        _STL_INTERNAL_CHECK(_STD in_range<_BlockSizeT>(_Limits.min) && _STD in_range<_BlockSizeT>(_Limits.max));
+    }
+
+    /* implicit */ constexpr operator hive_limits() const noexcept {
+        return {min, max};
+    }
+};
+
 template <size_t _ValueSize>
 using _Hive_skipfield_t = conditional_t<_ValueSize >= 4, uint16_t, uint8_t>;
 
@@ -262,7 +279,7 @@ struct _Hive_val_provider {
         using _Union     = _Block::_Union;
         using _Union_ptr = _Block::_Union_ptr;
 
-        using _Limits_t = hive_limits;
+        using _Limits_t = _Hive_limits_small<_Block_size_t>;
 
         using _Block_iters_provider = _Hive_block_iterators_provider<_Block, _Block_ptr>;
         using _Block_iter_active    = _Block_iters_provider::_Active_iterator;

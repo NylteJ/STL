@@ -262,6 +262,8 @@ struct _Hive_val_provider {
         using _Union     = _Block::_Union;
         using _Union_ptr = _Block::_Union_ptr;
 
+        using _Limits_t = hive_limits;
+
         using _Block_iters_provider = _Hive_block_iterators_provider<_Block, _Block_ptr>;
         using _Block_iter_active    = _Block_iters_provider::_Active_iterator;
         using _Block_iter_nonfull   = _Block_iters_provider::_Nonfull_iterator;
@@ -270,8 +272,14 @@ struct _Hive_val_provider {
         static constexpr auto _Sentinel_ord_id = _STD _Max_limit<size_type>();
 
         _Block _Sent_block = _Block::_Sentinel(_Sent_block);
+        _Block_iter_reserved _Reserved_first{nullptr};
 
-        // hive_limits current - limits = implementation - defined; // exposition only
+        size_type _Size     = 0;
+        size_type _Capacity = 0;
+
+        _Limits_t _Limits;
+
+        constexpr explicit _Val(_Limits_t _Limits_) noexcept : _Limits(_Limits_) {}
 
         _NODISCARD constexpr _Block_iter_active _Active_begin() const noexcept {
             return _Block_iter_active{_Sent_block._Next};
@@ -312,6 +320,8 @@ private:
     using _Scary_val = _Hive_val_provider<_Ty, size_type, difference_type, pointer, const_pointer>::_Val;
 
     using _Block_size_t = _Scary_val::_Block_size_t;
+
+    using _Limits_t = _Scary_val::_Limits_t;
 
     using _Block        = _Scary_val::_Block;
     using _Alblk        = _Rebind_alloc_t<_Alloc, _Block>;
@@ -382,13 +392,13 @@ private:
 
             _STL_INTERNAL_CHECK(_Blk->_Next->_Prev == _Blk);
             _STL_INTERNAL_CHECK(_Blk->_Capacity >= _Blk->_Size);
-            _STL_INTERNAL_CHECK(_Myval./* current-limits */./* contains */ (_Blk->_Capacity));
+            _STL_INTERNAL_CHECK(_Myval._Limits./* contains */ (_Blk->_Capacity));
             _STL_INTERNAL_CHECK(_Blk->_Order_id < _Blk->_Next->_Order_id);
 
             _Actual_size += _Blk->_Size;
             _Actual_cap += _Blk->_Capacity;
         }
-        _STL_INTERNAL_CHECK(_Myval./* size */ == _Actual_size);
+        _STL_INTERNAL_CHECK(_Myval._Size == _Actual_size);
 
         size_type _Active_space_count = 0;
         for (auto _Blk = _Myval._Nonfull_begin(); _Blk != _Sent; ++_Blk) {
@@ -399,11 +409,11 @@ private:
         }
         _STL_INTERNAL_CHECK(_Active_space_count == _Actual_cap - _Actual_size);
 
-        for (auto _Blk = /* first reserved block */; _Blk != nullptr; ++_Blk) {
-            _STL_INTERNAL_CHECK(_Myval./* current-limits */./* contains */ (_Blk->_Capacity));
+        for (auto _Blk = _Myval._Reserved_first; _Blk != nullptr; ++_Blk) {
+            _STL_INTERNAL_CHECK(_Myval._Limits./* contains */ (_Blk->_Capacity));
             _Actual_cap += _Blk->_Capacity;
         }
-        _STL_INTERNAL_CHECK(_Myval./* capacity */ == _Actual_cap);
+        _STL_INTERNAL_CHECK(_Myval._Capacity == _Actual_cap);
 
         _STL_INTERNAL_CHECK(_Myval._Sent_block._Order_id == _Sentinel_ord_id);
     }

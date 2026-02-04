@@ -268,6 +268,16 @@ struct _Hive_val_provider {
         _Block _Sent_block = _Block::_Sentinel(_Sent_block);
 
         // hive_limits current - limits = implementation - defined; // exposition only
+
+        _NODISCARD constexpr _Block_iter_active _Active_begin() const noexcept {
+            return _Block_iter_active{_Sent_block._Next};
+        }
+        _NODISCARD constexpr _Block_iter_nonfull _Nonfull_begin() const noexcept {
+            return _Block_iter_nonfull{_Sent_block._Next_nonfull};
+        }
+        _NODISCARD constexpr _Block_ptr _Sent() noexcept {
+            return pointer_traits<_Block_ptr>::pointer_to(_Sent_block);
+        }
     };
 };
 
@@ -324,11 +334,11 @@ public:
 private:
 #ifdef _ENABLE_STL_INTERNAL_CHECK
     constexpr void _Check_invariants() const noexcept {
-        const auto _Sent = /* my sentinel block */;
+        const auto _Sent = const_cast<_Scary_val&>(_Myval)._Sent();
 
         size_type _Actual_size = 0;
         size_type _Actual_cap  = 0;
-        for (auto _Blk = /* first active block */; _Blk != _Sent; ++_Blk) {
+        for (auto _Blk = _Myval._Active_begin(); _Blk != _Sent; ++_Blk) {
             _STL_INTERNAL_CHECK(_Blk->_Size > 0);
 
             _STL_INTERNAL_CHECK(_Blk->_Skip[_Blk->_Capacity] == 0);
@@ -377,7 +387,7 @@ private:
         _STL_INTERNAL_CHECK(_Myval./* size */ == _Actual_size);
 
         size_type _Active_space_count = 0;
-        for (auto _Blk = /* first nonfull block */; _Blk != _Sent; ++_Blk) {
+        for (auto _Blk = _Myval._Nonfull_begin(); _Blk != _Sent; ++_Blk) {
             _STL_INTERNAL_CHECK(_Blk->_Next_nonfull->_Prev_nonfull == _Blk);
             const auto _Space_count = _Blk->_Capacity - _Blk->_Size;
             _STL_INTERNAL_CHECK(_Space_count > 0);

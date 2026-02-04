@@ -125,6 +125,119 @@ struct _Hive_block_provider {
     };
 };
 
+template <class _BlockT, class _BlockPtr>
+struct _Hive_block_iterators_provider {
+    template <_BlockPtr _BlockT::* _Next, _BlockPtr _BlockT::* _Prev>
+    struct _Block_iter {
+        using _Block     = _BlockT;
+        using _Block_ptr = _BlockPtr;
+
+        _STL_INTERNAL_STATIC_ASSERT(_Next != nullptr);
+        using iterator_concept  = conditional_t<_Prev != nullptr, bidirectional_iterator_tag, forward_iterator_tag>;
+        using iterator_category = iterator_concept;
+        using value_type        = _Block;
+        using pointer           = _Block_ptr;
+        using difference_type   = iter_difference_t<pointer>;
+        using reference         = value_type&;
+
+        constexpr explicit _Block_iter(_Block_ptr _Block) noexcept : _Blk(_Block) {}
+        constexpr explicit _Block_iter(nullptr_t = nullptr) noexcept : _Blk(nullptr) {}
+
+        _NODISCARD constexpr _Block_ptr _Ptr() const noexcept {
+            return _Blk;
+        }
+        _NODISCARD /* implicit */ constexpr operator _Block_ptr() const noexcept {
+            return _Blk;
+        }
+
+        constexpr explicit operator bool() const noexcept {
+            return static_cast<bool>(_Blk);
+        }
+
+        constexpr _Block& operator*() const noexcept {
+            return *_Blk;
+        }
+        constexpr _Block_ptr operator->() const noexcept {
+            return _Blk;
+        }
+
+        constexpr _Block_iter& operator++() noexcept {
+            _Blk = (*_Blk).*_Next;
+            return *this;
+        }
+        constexpr _Block_iter operator++(int) noexcept {
+            const auto _Temp = *this;
+            ++*this;
+            return _Temp;
+        }
+        constexpr _Block_iter& operator--() noexcept {
+            _Blk = (*_Blk).*_Prev;
+            return *this;
+        }
+        constexpr _Block_iter operator--(int) noexcept {
+            const auto _Temp = *this;
+            --*this;
+            return _Temp;
+        }
+
+        constexpr bool operator==(const _Block_iter&) const = default;
+        constexpr bool operator==(_Block_ptr _Other) const {
+            return _Blk == _Other;
+        }
+        constexpr bool operator==(nullptr_t) const {
+            return _Blk == nullptr;
+        }
+
+        constexpr void _Swap(_Block_iter& _Other) {
+            swap(_Blk, _Other._Blk); // intentional ADL
+        }
+
+        constexpr void _Remove_from_list() const noexcept {
+            const auto _Blk_next = (*_Blk).*_Next;
+            const auto _Blk_prev = (*_Blk).*_Prev;
+            (*_Blk_next).*_Prev  = _Blk_prev;
+            (*_Blk_prev).*_Next  = _Blk_next;
+#ifdef _ENABLE_STL_INTERNAL_CHECK
+            (*_Blk).*_Next = (*_Blk).*_Prev = nullptr;
+#endif // defined(_ENABLE_STL_INTERNAL_CHECK)
+        }
+
+        constexpr void _Insert_after(_Block_ptr _Other) const noexcept {
+            const auto _Blk_next = (*_Blk).*_Next;
+            (*_Other).*_Next     = _Blk_next;
+            (*_Other).*_Prev     = _Blk;
+            (*_Blk_next).*_Prev  = _Other;
+            (*_Blk).*_Next       = _Other;
+        }
+
+        constexpr void _Insert_before(_Block_ptr _Other) const noexcept {
+            const auto _Blk_prev = (*_Blk).*_Prev;
+            (*_Other).*_Prev     = _Blk_prev;
+            (*_Other).*_Next     = _Blk;
+            (*_Blk_prev).*_Next  = _Other;
+            (*_Blk).*_Prev       = _Other;
+        }
+
+        constexpr void _Splice_before(_Block_ptr _Sent) const noexcept {
+            const auto _Blk_prev  = (*_Blk).*_Prev;
+            const auto _Sent_next = (*_Sent).*_Next;
+            (*_Blk_prev).*_Next   = _Sent_next;
+            (*_Sent_next).*_Prev  = _Blk_prev;
+            const auto _Sent_prev = (*_Sent).*_Prev;
+            (*_Blk).*_Prev        = _Sent_prev;
+            (*_Sent_prev).*_Next  = _Blk;
+            (*_Sent).*_Next = (*_Sent).*_Prev = _Sent;
+        }
+
+    private:
+        _Block_ptr _Blk;
+    };
+
+    using _Active_iterator   = _Block_iter<&_BlockT::_Next, &_BlockT::_Prev>;
+    using _Nonfull_iterator  = _Block_iter<&_BlockT::_Next_nonfull, &_BlockT::_Prev_nonfull>;
+    using _Reserved_iterator = _Block_iter<&_BlockT::_Next, nullptr>;
+};
+
 template <class _ValueType, class _SizeType, class _DifferenceType, class _Pointer, class _ConstPointer>
 struct _Hive_val_provider {
     struct _Val {
@@ -144,6 +257,11 @@ struct _Hive_val_provider {
 
         using _Union     = _Block::_Union;
         using _Union_ptr = _Block::_Union_ptr;
+
+        using _Block_iters_provider = _Hive_block_iterators_provider<_Block, _Block_ptr>;
+        using _Block_iter_active    = _Block_iters_provider::_Active_iterator;
+        using _Block_iter_nonfull   = _Block_iters_provider::_Nonfull_iterator;
+        using _Block_iter_reserved  = _Block_iters_provider::_Reserved_iterator;
 
         static constexpr auto _Sentinel_ord_id = _STD _Max_limit<size_type>();
 
@@ -190,6 +308,10 @@ private:
     using _Alunion        = _Rebind_alloc_t<_Alloc, _Union>;
     using _Alunion_traits = allocator_traits<_Alunion>;
     using _Union_ptr      = _Scary_val::_Union_ptr;
+
+    using _Block_iter_active   = _Scary_val::_Block_iter_active;
+    using _Block_iter_nonfull  = _Scary_val::_Block_iter_nonfull;
+    using _Block_iter_reserved = _Scary_val::_Block_iter_reserved;
 
     static constexpr auto _Sentinel_ord_id = _Scary_val::_Sentinel_ord_id;
 

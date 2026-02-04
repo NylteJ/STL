@@ -431,6 +431,313 @@ struct _Hive_block_iterators_provider {
 _EXPORT_STD template <class _Ty, class _Alloc = allocator<_Ty>>
 class hive;
 
+template <class _Myhive>
+struct _Hive_iterators_provider {
+    using _Block        = _Myhive::_Block;
+    using _Block_ptr    = _Myhive::_Block_ptr;
+    using _Block_size_t = _Myhive::_Block_size_t;
+
+    using _Block_iter_active = _Myhive::_Block_iter_active;
+
+    static constexpr auto _Sentinel_ord_id = _STD _Max_limit<typename _Myhive::size_type>();
+
+    // also used in IDL as common base class
+    template <class _Base = _Hive_iterator_base0>
+    class _Unchecked_local_iter : public _Base {
+    public:
+        using iterator_category = bidirectional_iterator_tag;
+        using value_type        = _Myhive::value_type;
+        using difference_type   = _Myhive::difference_type;
+        using pointer           = _Myhive::pointer;
+        using reference         = value_type&;
+
+        constexpr _Unchecked_local_iter() noexcept = default;
+
+        _NODISCARD constexpr reference operator*() const noexcept {
+            return _Blk->_Data[_Index]._Value;
+        }
+        _NODISCARD constexpr pointer operator->() const noexcept {
+            return pointer_traits<pointer>::pointer_to(**this);
+        }
+
+        constexpr _Unchecked_local_iter& operator++() noexcept {
+            _STL_INTERNAL_CHECK(_Index < _Blk->_Capacity);
+            const _Block_size_t _Delta = _Blk->_Skip[_Index + 1] + 1u;
+            _STL_INTERNAL_CHECK(_Delta <= _Blk->_Capacity && _Index <= _Blk->_Capacity - _Delta);
+            _Index += _Delta;
+            return *this;
+        }
+        constexpr _Unchecked_local_iter operator++(int) noexcept {
+            const auto _Temp = *this;
+            ++*this;
+            return _Temp;
+        }
+        constexpr _Unchecked_local_iter& operator--() noexcept {
+            _STL_INTERNAL_CHECK(_Index > 0);
+            const _Block_size_t _Delta = _Blk->_Skip[_Index - 1] + 1u;
+            _STL_INTERNAL_CHECK(_Index >= _Delta);
+            _Index -= _Delta;
+            return *this;
+        }
+        constexpr _Unchecked_local_iter operator--(int) noexcept {
+            const auto _Temp = *this;
+            --*this;
+            return _Temp;
+        }
+
+        _NODISCARD constexpr bool operator==(const _Unchecked_local_iter& _Right) const noexcept {
+            _STL_INTERNAL_CHECK(_Blk == _Right._Blk);
+            return _Index == _Right._Index;
+        }
+
+    protected:
+        template <class _Ty, class _Alloc>
+        friend class hive;
+        template <class _ValueType, class _SizeType, class _DifferenceType, class _Pointer, class _ConstPointer>
+        friend struct _Hive_val_provider;
+
+        friend _Hive_iterators_provider;
+
+        constexpr _Unchecked_local_iter(_Block_ptr _Blk_, _Block_size_t _Index_) : _Blk(_Blk_), _Index(_Index_) {}
+
+        _Block_iter_active _Blk{nullptr};
+        _Block_size_t _Index = 0;
+    };
+
+    template <bool _Const, class _Base = _Hive_iterator_base0>
+    class _Unchecked_iter : public _Unchecked_local_iter<_Base> {
+        using _Mybase = _Unchecked_local_iter<_Base>;
+        using _Mybase::_Blk, _Mybase::_Index;
+
+    public:
+        using typename _Mybase::value_type;
+        using pointer   = conditional_t<_Const, typename _Myhive::const_pointer, typename _Myhive::pointer>;
+        using reference = conditional_t<_Const, const value_type&, value_type&>;
+
+        constexpr _Unchecked_iter() noexcept                       = default;
+        constexpr _Unchecked_iter(const _Unchecked_iter&) noexcept = default;
+
+        /* implicit */ constexpr _Unchecked_iter(const _Unchecked_iter<false, _Base>& _Mutable_iter) noexcept
+            requires _Const
+            : _Mybase(_Mutable_iter) {}
+
+        constexpr _Unchecked_iter& operator=(const _Unchecked_iter&) noexcept = default;
+
+        _NODISCARD constexpr reference operator*() const noexcept {
+            return _Mybase::operator*();
+        }
+        _NODISCARD constexpr pointer operator->() const noexcept {
+            return pointer_traits<pointer>::pointer_to(**this);
+        }
+
+        constexpr _Unchecked_iter& operator++() noexcept {
+            _Mybase::operator++();
+            if (_Index == _Blk->_Capacity) {
+                ++_Blk;
+                _Index = _Blk->_First_element();
+                this->_Adopt(_STD to_address(_Blk._Ptr()));
+            }
+            return *this;
+        }
+        constexpr _Unchecked_iter operator++(int) noexcept {
+            const auto _Temp = *this;
+            ++*this;
+            return _Temp;
+        }
+
+        constexpr _Unchecked_iter& operator--() noexcept {
+            if (_Index == _Blk->_First_element()) {
+                --_Blk;
+                _Index = _Blk->_Capacity;
+                this->_Adopt(_STD to_address(_Blk._Ptr()));
+            }
+            _Mybase::operator--();
+            return *this;
+        }
+        constexpr _Unchecked_iter operator--(int) noexcept {
+            const auto _Temp = *this;
+            --*this;
+            return _Temp;
+        }
+
+        template <bool _RightConst>
+        _NODISCARD constexpr strong_ordering operator<=>(
+            const _Unchecked_iter<_RightConst, _Base>& _Right) const noexcept {
+            if (_Blk == _Right._Blk) {
+                return _Index <=> _Right._Index;
+            }
+            _STL_INTERNAL_CHECK(_Blk->_Order_id != _Right._Blk->_Order_id);
+            return _Blk->_Order_id < _Right._Blk->_Order_id ? strong_ordering::less : strong_ordering::greater;
+        }
+
+        template <bool _RightConst>
+        _NODISCARD constexpr bool operator==(const _Unchecked_iter<_RightConst, _Base>& _Right) const noexcept {
+            return _Blk == _Right._Blk && _Index == _Right._Index;
+        }
+
+    protected:
+        template <class _Ty, class _Alloc>
+        friend class hive;
+
+        friend _Hive_iterators_provider;
+
+        constexpr _Unchecked_iter(_Block_iter_active _Blk_, _Block_size_t _Index_) : _Mybase(_Blk_, _Index_) {}
+
+        _NODISCARD constexpr auto _Mutable() const noexcept
+            requires _Const
+        {
+            return _Unchecked_iter<false, _Base>{_Blk, _Index};
+        }
+    };
+
+    template <bool _Const>
+    class _Iter : public _Unchecked_iter<_Const, _Hive_iterator_base> {
+        using _Mybase = _Unchecked_iter<_Const, _Hive_iterator_base>;
+        using _Mybase::_Blk, _Mybase::_Index;
+
+    public:
+        using typename _Mybase::reference, typename _Mybase::pointer;
+
+        constexpr _Iter() noexcept             = default;
+        constexpr _Iter(const _Iter&) noexcept = default;
+
+        /* implicit */ constexpr _Iter(const _Iter<false>& _Mutable_iter) noexcept
+            requires _Const
+            : _Mybase(_Mutable_iter._Blk, _Mutable_iter._Index) {
+            _Hive_iterator_base::operator=(_Mutable_iter);
+        }
+
+        constexpr _Iter& operator=(const _Iter&) noexcept = default;
+
+#if _ITERATOR_DEBUG_LEVEL != 0
+        _NODISCARD constexpr reference operator*() const noexcept {
+            _STL_VERIFY(!this->_Is_value_initialized(), "cannot dereference value-initialized hive iterator");
+            _STL_VERIFY(!this->_Is_invalid(), "cannot dereference invalid hive iterator");
+            _STL_VERIFY(!this->_Is_end(), "cannot dereference end hive iterator");
+
+            return _Mybase::operator*();
+        }
+        _NODISCARD constexpr pointer operator->() const noexcept {
+            return pointer_traits<pointer>::pointer_to(**this);
+        }
+#endif // _ITERATOR_DEBUG_LEVEL != 0
+
+        constexpr _Iter& operator++() noexcept {
+#if _ITERATOR_DEBUG_LEVEL != 0
+            _STL_VERIFY(!this->_Is_value_initialized(), "cannot increment value-initialized hive iterator");
+            _STL_VERIFY(!this->_Is_invalid(), "cannot increment invalid hive iterator");
+            _STL_VERIFY(!this->_Is_end(), "cannot increment end hive iterator");
+#endif // _ITERATOR_DEBUG_LEVEL != 0
+            _Mybase::operator++();
+            return *this;
+        }
+        constexpr _Iter operator++(int) noexcept {
+            const auto _Temp = *this;
+            ++*this;
+            return _Temp;
+        }
+        constexpr _Iter& operator--() noexcept {
+#if _ITERATOR_DEBUG_LEVEL != 0
+            _STL_VERIFY(!this->_Is_value_initialized(), "cannot decrement value-initialized hive iterator");
+            _STL_VERIFY(!this->_Is_invalid(), "cannot decrement invalid hive iterator");
+            _STL_VERIFY(!this->_Is_begin(), "cannot decrement begin hive iterator");
+#endif // _ITERATOR_DEBUG_LEVEL != 0
+            _Mybase::operator--();
+            return *this;
+        }
+        constexpr _Iter operator--(int) noexcept {
+            const auto _Temp = *this;
+            --*this;
+            return _Temp;
+        }
+
+#if _ITERATOR_DEBUG_LEVEL != 0
+        template <bool _OtherConst>
+        constexpr void _Compat(const _Iter<_OtherConst>& _Other) const noexcept {
+            _STL_VERIFY((this->_Myblock != nullptr && _Other._Myblock != nullptr
+                            && this->_Myblock->_Mycont == _Other._Myblock->_Mycont)
+                            || (this->_Is_value_initialized() && _Other._Is_value_initialized()),
+                "hive iterators incompatible");
+        }
+
+        template <bool _RightConst>
+        _NODISCARD constexpr strong_ordering operator<=>(const _Iter<_RightConst>& _Right) const noexcept {
+            _Compat(_Right);
+            return _Mybase::operator<=>(_Right);
+        }
+        template <bool _RightConst>
+        _NODISCARD constexpr bool operator==(const _Iter<_RightConst>& _Right) const noexcept {
+            _Compat(_Right);
+            return _Mybase::operator==(_Right);
+        }
+#endif // _ITERATOR_DEBUG_LEVEL != 0
+
+        using _Prevent_inheriting_unwrap = _Iter;
+
+        _NODISCARD constexpr _Unchecked_iter<_Const> _Unwrapped() const noexcept {
+            return {_Blk, _Index};
+        }
+
+        constexpr void _Seek_to(const _Unchecked_iter<_Const>& _It) noexcept {
+            _Blk   = _It._Blk;
+            _Index = _It._Index;
+            this->_Adopt(_STD to_address(_Blk._Ptr()));
+        }
+
+#if _ITERATOR_DEBUG_LEVEL != 0
+        template <bool _LastConst>
+        friend constexpr void _Verify_range(const _Iter& _First, const _Iter<_LastConst>& _Last) noexcept {
+            // note _Compat check inside operator<=>
+            _STL_VERIFY(_First <= _Last, "hive iterator range transposed");
+        }
+#endif // _ITERATOR_DEBUG_LEVEL != 0
+
+    private:
+        template <class _Ty, class _Alloc>
+        friend class hive;
+
+        friend _Hive_iterators_provider;
+
+        constexpr _Iter(_Block_iter_active _Blk_, _Block_size_t _Index_) : _Mybase(_Blk_, _Index_) {
+            this->_Adopt(_STD to_address(_Blk._Ptr()));
+        }
+
+        _NODISCARD constexpr auto _Mutable() const noexcept
+            requires _Const
+        {
+            return _Iter<false>{_Blk, _Index};
+        }
+
+#if _ITERATOR_DEBUG_LEVEL != 0
+        _NODISCARD constexpr bool _Is_first_block() const noexcept {
+            return _Blk->_Prev->_Is_sent();
+        }
+
+        _NODISCARD constexpr bool _Is_end() const noexcept {
+            return _Blk->_Is_sent();
+        }
+        _NODISCARD constexpr bool _Is_begin() const noexcept {
+            return _Is_first_block() && _Index == _Blk->_First_element();
+        }
+#endif // _ITERATOR_DEBUG_LEVEL != 0
+    };
+
+    using const_iterator             = _Iter<true>;
+    using iterator                   = _Iter<false>;
+    using _Unchecked_const_iterator  = _Unchecked_iter<true>;
+    using _Unchecked_iterator        = _Unchecked_iter<false>;
+    using _Local_iterator            = _Unchecked_local_iter<>;
+    using _Local_iterator_idl_common = _Unchecked_local_iter<_Hive_iterator_base>;
+
+    _STL_INTERNAL_STATIC_ASSERT(derived_from<iterator, _Local_iterator_idl_common>);
+    _STL_INTERNAL_STATIC_ASSERT(derived_from<const_iterator, _Local_iterator_idl_common>);
+
+    _STL_INTERNAL_STATIC_ASSERT(_Unwrappable_v<iterator>);
+    _STL_INTERNAL_STATIC_ASSERT(!_Unwrappable_v<_Unchecked_iterator>);
+    _STL_INTERNAL_STATIC_ASSERT(_Unwrappable_v<const_iterator>);
+    _STL_INTERNAL_STATIC_ASSERT(!_Unwrappable_v<_Unchecked_const_iterator>);
+};
+
 template <class _ValueType, class _SizeType, class _DifferenceType, class _Pointer, class _ConstPointer>
 struct _Hive_val_provider {
     struct _Val : _Hive_val_empty_base {
@@ -441,8 +748,6 @@ struct _Hive_val_provider {
         using const_reference = const value_type&;
         using size_type       = _SizeType;
         using difference_type = _DifferenceType;
-        using iterator        = /* TODO */;
-        using const_iterator  = /* TODO */;
 
         using _Block        = _Hive_block_provider<value_type, size_type, pointer>::_Block;
         using _Block_ptr    = _Block::_Block_ptr;
@@ -457,6 +762,14 @@ struct _Hive_val_provider {
         using _Block_iter_active    = _Block_iters_provider::_Active_iterator;
         using _Block_iter_nonfull   = _Block_iters_provider::_Nonfull_iterator;
         using _Block_iter_reserved  = _Block_iters_provider::_Reserved_iterator;
+
+        using _Iters_provider            = _Hive_iterators_provider<_Val>;
+        using iterator                   = _Iters_provider::iterator;
+        using const_iterator             = _Iters_provider::const_iterator;
+        using _Unchecked_iterator        = _Iters_provider::_Unchecked_iterator;
+        using _Unchecked_const_iterator  = _Iters_provider::_Unchecked_const_iterator;
+        using _Local_iterator            = _Iters_provider::_Local_iterator;
+        using _Local_iterator_idl_common = _Iters_provider::_Local_iterator_idl_common;
 
         static constexpr auto _Sentinel_ord_id = _STD _Max_limit<size_type>();
 
@@ -534,6 +847,9 @@ private:
     using _Block_iter_nonfull  = _Scary_val::_Block_iter_nonfull;
     using _Block_iter_reserved = _Scary_val::_Block_iter_reserved;
 
+    using _Local_iterator            = _Scary_val::_Local_iterator;
+    using _Local_iterator_idl_common = _Scary_val::_Local_iterator_idl_common;
+
     static constexpr auto _Sentinel_ord_id = _Scary_val::_Sentinel_ord_id;
 
     // note that this may exceed `block_capacity_hard_limits().max` due to N5032 [hive.overview]/5.3
@@ -541,8 +857,11 @@ private:
         _STD min<size_t>(_STD _Max_limit<_Block_size_t>(), _STD _Max_limit<size_type>());
 
 public:
-    using iterator               = _Scary_val::iterator;
-    using const_iterator         = _Scary_val::const_iterator;
+    using iterator                  = _Scary_val::iterator;
+    using const_iterator            = _Scary_val::const_iterator;
+    using _Unchecked_iterator       = _Scary_val::_Unchecked_iterator;
+    using _Unchecked_const_iterator = _Scary_val::_Unchecked_const_iterator;
+
     using reverse_iterator       = _STD reverse_iterator<iterator>;
     using const_reverse_iterator = _STD reverse_iterator<const_iterator>;
 
@@ -635,7 +954,8 @@ private:
             const auto _Last    = _STD addressof(_Blk->_Sent_iter);
             for (auto _First = _Blk->_Sent_iter._Mynextiter; _First != _Last; _First = _First->_Mynextiter) {
                 _STL_INTERNAL_CHECK(_First->_Mypreviter->_Mynextiter == _First);
-                _STL_INTERNAL_CHECK(/* _First->_Myblock */ == _Blk_ptr);
+                auto& _First_iter = static_cast<const _Local_iterator_idl_common&>(*_First);
+                _STL_INTERNAL_CHECK(_First_iter._Myblock == _Blk_ptr);
             }
         }
 #endif // _ITERATOR_DEBUG_LEVEL != 0

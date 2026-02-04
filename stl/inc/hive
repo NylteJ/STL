@@ -73,7 +73,7 @@ public:
     ~hive();
 
     hive& operator=(const hive& _Right);
-    hive& operator=(hive&& _Right) noexcept(/*see below*/);
+    hive& operator=(hive&& _Right) noexcept(_Choose_pocma_v<_Alty> != _Pocma_values::_No_propagate_allocators);
     hive& operator=(initializer_list<_Ty>);
     template <_Iterator_for_container _Iter>
     void assign(_Iter _First, _Iter _Last);
@@ -129,7 +129,7 @@ public:
 
     iterator erase(const_iterator _Where);
     iterator erase(const_iterator _First, const_iterator _Last);
-    void swap(hive&) noexcept(/*see below*/);
+    void swap(hive&) noexcept(_Alty_traits::propagate_on_container_swap::value || _Alty_traits::is_always_equal::value);
     void clear() noexcept;
 
     // [hive.operations], hive operations

@@ -75,6 +75,149 @@ struct _Hive_limits_small {
     }
 };
 
+// TRANSITION, ABI: The current iterator debugging facilities use dynamically allocated proxy objects, which would make
+// the default constructor potentially-throwing. To avoid this, we use a custom debugging mechanism here.
+
+// iterator debugging data structures overview: iterators -> blocks -> hive_val
+// iterators are internally linked in an intrusive doubly-linked list
+
+struct _Hive_val_empty_base {};
+
+struct _Hive_block_base;
+
+class _Hive_iterator_base0 {
+public:
+    static constexpr bool _Unwrap_when_unverified = true;
+
+protected:
+    static constexpr void _Orphan_me() noexcept {}
+    static constexpr void _Adopt(const _Hive_block_base*) noexcept {}
+};
+
+struct _Hive_iterator_base12_base {
+    // _Orphan leaves these pointers unchanged; their values can distinguish default-initialized iterators from
+    // invalidated ones
+    mutable const _Hive_iterator_base12_base* _Mypreviter = nullptr;
+    mutable const _Hive_iterator_base12_base* _Mynextiter = nullptr;
+};
+
+struct _Hive_block_base {
+#if _ITERATOR_DEBUG_LEVEL != 0
+    mutable _Hive_iterator_base12_base _Sent_iter{_STD addressof(_Sent_iter), _STD addressof(_Sent_iter)};
+    mutable const _Hive_val_empty_base* _Mycont = nullptr;
+#endif // _ITERATOR_DEBUG_LEVEL != 0
+};
+
+class _Hive_iterator_base12 : protected _Hive_iterator_base12_base {
+public:
+    static constexpr bool _Unwrap_when_unverified = _ITERATOR_DEBUG_LEVEL == 0;
+
+protected:
+    template <class _ValueType, class _SizeType, class _DifferenceType, class _Pointer, class _ConstPointer>
+    friend struct _Hive_val_provider;
+
+    mutable const _Hive_block_base* _Myblock = nullptr;
+
+    constexpr _Hive_iterator_base12() noexcept = default;
+
+    constexpr _Hive_iterator_base12(const _Hive_iterator_base12& _Right) {
+        *this = _Right;
+    }
+
+    constexpr _Hive_iterator_base12& operator=(const _Hive_iterator_base12& _Right) {
+        _Inherit_from(_Right);
+        return *this;
+    }
+
+    constexpr ~_Hive_iterator_base12() noexcept {
+        _Orphan_me();
+    }
+
+    constexpr void _Orphan_me() const noexcept {
+        if consteval {
+            _Orphan_me_unlocked();
+        } else {
+            _Orphan_me_locked();
+        }
+    }
+    constexpr void _Adopt(const _Hive_block_base* _Parent) const noexcept {
+        if consteval {
+            _Adopt_unlocked(_Parent);
+        } else {
+            _Adopt_locked(_Parent);
+        }
+    }
+    constexpr void _Inherit_from(const _Hive_iterator_base12& _Right) const noexcept {
+        if consteval {
+            _Inherit_from_unlocked(_Right);
+        } else {
+            _Inherit_from_locked(_Right);
+        }
+    }
+
+    _NODISCARD constexpr bool _Is_value_initialized() const noexcept {
+        return _Mypreviter == nullptr;
+    }
+    _NODISCARD constexpr bool _Is_invalid() const noexcept {
+        return _Myblock == nullptr && _Mypreviter != nullptr;
+    }
+
+    constexpr void _Adopt_unlocked([[maybe_unused]] const _Hive_block_base* _Parent) const noexcept {
+#if _ITERATOR_DEBUG_LEVEL != 0
+        if (_Myblock == _Parent) {
+            return;
+        }
+        _Orphan_me_unlocked();
+        if (_Parent != nullptr) {
+            _Myblock                                      = _Parent;
+            _Mypreviter                                   = _Myblock->_Sent_iter._Mypreviter;
+            _Mynextiter                                   = _STD addressof(_Myblock->_Sent_iter);
+            _Myblock->_Sent_iter._Mypreviter->_Mynextiter = this;
+            _Myblock->_Sent_iter._Mypreviter              = this;
+        }
+#endif // _ITERATOR_DEBUG_LEVEL != 0
+    }
+    void _Adopt_locked(const _Hive_block_base* _Parent) const noexcept {
+        _Lockit _Lock(_LOCK_DEBUG);
+        _Adopt_unlocked(_Parent);
+    }
+
+    constexpr void _Orphan_me_unlocked() const noexcept {
+        if (_Myblock == nullptr) {
+            return;
+        }
+
+        _Myblock                 = nullptr;
+        _Mypreviter->_Mynextiter = _Mynextiter;
+        _Mynextiter->_Mypreviter = _Mypreviter;
+    }
+    void _Orphan_me_locked() const noexcept {
+        _Lockit _Lock(_LOCK_DEBUG);
+        _Orphan_me_unlocked();
+    }
+
+    constexpr void _Inherit_from_unlocked(const _Hive_iterator_base12& _Right) const noexcept {
+        if (_Right._Myblock == nullptr) {
+            _Orphan_me_unlocked();
+            _Mypreviter = _Right._Mypreviter;
+            _STL_INTERNAL_CHECK(_Is_invalid() == _Right._Is_invalid());
+            _STL_INTERNAL_CHECK(_Is_value_initialized() == _Right._Is_value_initialized());
+        } else {
+            _Adopt_unlocked(_Right._Myblock);
+        }
+    }
+    void _Inherit_from_locked(const _Hive_iterator_base12& _Right) const noexcept {
+        _Lockit _Lock(_LOCK_DEBUG);
+        _Inherit_from_unlocked(_Right);
+    }
+};
+
+#if _ITERATOR_DEBUG_LEVEL == 0
+using _Hive_iterator_base = _Hive_iterator_base0;
+#else // ^^^ _ITERATOR_DEBUG_LEVEL == 0 / _ITERATOR_DEBUG_LEVEL > 0 vvv
+using _Hive_iterator_base = _Hive_iterator_base12;
+#endif // ^^^ _ITERATOR_DEBUG_LEVEL > 0 ^^^
+
 template <size_t _ValueSize>
 using _Hive_skipfield_t = conditional_t<_ValueSize >= 4, uint16_t, uint8_t>;
 
@@ -99,7 +242,7 @@ struct _Hive_union_provider {
 
 template <class _ValueT, class _HiveSizeT, class _AnyPtrT>
 struct _Hive_block_provider {
-    struct _Block {
+    struct _Block : _Hive_block_base {
         using _Union         = _Hive_union_provider<_ValueT>::_Union;
         using _Union_ptr     = _Rebind_pointer_t<_AnyPtrT, _Union>;
         using _Block_ptr     = _Rebind_pointer_t<_AnyPtrT, _Block>;
@@ -286,7 +429,7 @@ struct _Hive_block_iterators_provider {
 
 template <class _ValueType, class _SizeType, class _DifferenceType, class _Pointer, class _ConstPointer>
 struct _Hive_val_provider {
-    struct _Val {
+    struct _Val : _Hive_val_empty_base {
         using value_type      = _ValueType;
         using pointer         = _Pointer;
         using const_pointer   = _ConstPointer;
@@ -321,7 +464,11 @@ struct _Hive_val_provider {
 
         _Limits_t _Limits;
 
-        constexpr explicit _Val(_Limits_t _Limits_) noexcept : _Limits(_Limits_) {}
+        constexpr explicit _Val(_Limits_t _Limits_) noexcept : _Limits(_Limits_) {
+#if _ITERATOR_DEBUG_LEVEL != 0
+            _Sent_block._Mycont = this;
+#endif // _ITERATOR_DEBUG_LEVEL != 0
+        }
 
         _NODISCARD constexpr _Block_iter_active _Active_begin() const noexcept {
             return _Block_iter_active{_Sent_block._Next};
@@ -476,6 +623,19 @@ private:
         _STL_INTERNAL_CHECK(_Myval._Capacity == _Actual_cap);
 
         _STL_INTERNAL_CHECK(_Myval._Sent_block._Order_id == _Sentinel_ord_id);
+
+#if _ITERATOR_DEBUG_LEVEL != 0
+        const auto _Myval_addr = _STD addressof(_Myval);
+        for (auto _Blk = _Myval._Active_begin(); _Blk != _Sent; ++_Blk) {
+            _STL_INTERNAL_CHECK(_Blk->_Mycont == _Myval_addr);
+            const auto _Blk_ptr = _STD to_address(_Blk._Ptr());
+            const auto _Last    = _STD addressof(_Blk->_Sent_iter);
+            for (auto _First = _Blk->_Sent_iter._Mynextiter; _First != _Last; _First = _First->_Mynextiter) {
+                _STL_INTERNAL_CHECK(_First->_Mypreviter->_Mynextiter == _First);
+                _STL_INTERNAL_CHECK(/* _First->_Myblock */ == _Blk_ptr);
+            }
+        }
+#endif // _ITERATOR_DEBUG_LEVEL != 0
     }
 #endif // ^^^ defined(_ENABLE_STL_INTERNAL_CHECK) ^^^
 

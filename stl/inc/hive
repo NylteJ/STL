@@ -545,10 +545,16 @@ public:
     _NODISCARD const_reverse_iterator crend() const noexcept;
 
     // [hive.capacity], capacity
-    _NODISCARD_EMPTY_MEMBER bool empty() const noexcept;
-    _NODISCARD size_type size() const noexcept;
+    _NODISCARD_EMPTY_MEMBER bool empty() const noexcept {
+        return _Myval._Size == 0;
+    }
+    _NODISCARD size_type size() const noexcept {
+        return _Myval._Size;
+    }
     _NODISCARD size_type max_size() const noexcept;
-    _NODISCARD size_type capacity() const noexcept;
+    _NODISCARD size_type capacity() const noexcept {
+        return _Myval._Capacity;
+    }
 
     void reserve(size_type _New_capacity);
 

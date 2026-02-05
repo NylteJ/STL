@@ -1157,6 +1157,21 @@ public:
     _NODISCARD iterator get_iterator(const_pointer _Ptr) noexcept;
     _NODISCARD const_iterator get_iterator(const_pointer _Ptr) const noexcept;
 
+    _NODISCARD constexpr _Unchecked_iterator _Unchecked_begin() noexcept {
+        return static_cast<const hive*>(this)->_Unchecked_begin()._Mutable();
+    }
+    _NODISCARD constexpr _Unchecked_const_iterator _Unchecked_begin() const noexcept {
+        const auto _Blk = _Myval._Active_begin();
+        return {_Blk, _Blk->_First_element()};
+    }
+    _NODISCARD constexpr _Unchecked_iterator _Unchecked_end() noexcept {
+        return static_cast<const hive*>(this)->_Unchecked_end()._Mutable();
+    }
+    _NODISCARD constexpr _Unchecked_const_iterator _Unchecked_end() const noexcept {
+        const auto _Sent = const_cast<_Scary_val&>(_Myval)._Sent();
+        return {_Block_iter_active{_Sent}, 0};
+    }
+
 private:
     _MSVC_NO_UNIQUE_ADDRESS _Alty _Al;
     _Scary_val _Myval;

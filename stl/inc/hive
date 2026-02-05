@@ -551,7 +551,19 @@ public:
     _NODISCARD size_type size() const noexcept {
         return _Myval._Size;
     }
-    _NODISCARD size_type max_size() const noexcept;
+
+    _NODISCARD size_type max_size() const noexcept {
+        if constexpr (_Max_limit_may_be_zero) {
+            // Note: The return value of the allocator's max_size() may change at runtime, so we must handle it manually
+            // here.
+            if (_Myval._Limits.max == 0) {
+                return 0; // so that reserve() can throw length_error
+            }
+        }
+        return (_STD min) (static_cast<size_type>(_STD _Max_limit<difference_type>()),
+            _Alunion_traits::max_size(_Alunion(_Al)));
+    }
+
     _NODISCARD size_type capacity() const noexcept {
         return _Myval._Capacity;
     }

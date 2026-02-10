@@ -3,10 +3,6 @@
 // Copyright (c) Microsoft Corporation.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-// TODO: If hive becomes constexpr, wrap each _Treat_union_as_ty branch and _Merge_alloc branch with `if !consteval`,
-//       and explicitly call `construct_at` for implicit lifetime types (union, block, skipfield) in constant
-//       evaluation.
-
 #ifndef _HIVE_
 #define _HIVE_
 #include <yvals_core.h>
@@ -246,7 +242,7 @@ struct _Hive_union_provider<_ValueT> {
         _ValueT _Value;
         _Free_list_node _Free;
 
-        ~_Union() = delete; // FIXME: unnecessary in C++26
+        constexpr ~_Union() {} // FIXME: unnecessary in C++26
     };
 };
 
@@ -673,7 +669,7 @@ struct _Hive_union_provider<_ValueT> {
         _ValueT _Value;
         _Skip_t _Skip;
 
-        ~_Union() = delete; // FIXME: unnecessary in C++26
+        constexpr ~_Union() {} // FIXME: unnecessary in C++26
     };
 };
 
@@ -1784,52 +1780,56 @@ struct _Hive_lambdas_provider {
 
         template <_Mode_t _Mode, class _SrcIt, class _DstIt>
         static constexpr void _Do_copy_move(_SrcIt& _Src, _Block_size_t _Cnt, _DstIt& _Dst) {
-            constexpr bool _Rnd_src = random_access_iterator<_SrcIt>;
-            constexpr bool _Rnd_dst = random_access_iterator<_DstIt>;
-
-            const auto& _USrc = [&] -> decltype(auto) {
-                if constexpr (_Treat_union_as_ty && _Hive_local_ptr<_SrcIt>) {
-                    return _STD to_address(_Src);
-                } else {
-                    return _Src;
-                }
-            }();
-            const auto& _UDst = [&] -> decltype(auto) {
-                if constexpr (_Treat_union_as_ty && (_Mode & _Uninit)) {
-                    return _Dst._Get_ptr();
-                } else if constexpr (_Treat_union_as_ty && _Hive_local_ptr<_DstIt>) {
-                    return _STD to_address(_Dst);
-                } else {
-                    return _Dst;
-                }
-            }();
-
             _STL_INTERNAL_CHECK(_Cnt > 0);
 
-            if constexpr ((_Mode & _Uninit) && _Treat_union_as_ty && _Rnd_src) {
-                auto&& _Al = _Dst._Get_al();
-                if constexpr (_Mode & _Move) {
-                    _STD _Uninitialized_move(_USrc, _USrc + _Cnt, _UDst, _Al);
-                } else {
-                    _STD _Uninitialized_copy_n(_USrc, _Cnt, _UDst, _Al);
+            if !consteval {
+                constexpr bool _Rnd_src = random_access_iterator<_SrcIt>;
+                constexpr bool _Rnd_dst = random_access_iterator<_DstIt>;
+
+                const auto& _USrc = [&] -> decltype(auto) {
+                    if constexpr (_Treat_union_as_ty && _Hive_local_ptr<_SrcIt>) {
+                        return _STD to_address(_Src);
+                    } else {
+                        return _Src;
+                    }
+                }();
+                const auto& _UDst = [&] -> decltype(auto) {
+                    if constexpr (_Treat_union_as_ty && (_Mode & _Uninit)) {
+                        return _Dst._Get_ptr();
+                    } else if constexpr (_Treat_union_as_ty && _Hive_local_ptr<_DstIt>) {
+                        return _STD to_address(_Dst);
+                    } else {
+                        return _Dst;
+                    }
+                }();
+
+                if constexpr ((_Mode & _Uninit) && _Treat_union_as_ty && _Rnd_src) {
+                    auto&& _Al = _Dst._Get_al();
+                    if constexpr (_Mode & _Move) {
+                        _STD _Uninitialized_move(_USrc, _USrc + _Cnt, _UDst, _Al);
+                    } else {
+                        _STD _Uninitialized_copy_n(_USrc, _Cnt, _UDst, _Al);
+                    }
+                    _Dst._Advance(_Cnt);
+                    _Src += static_cast<iter_difference_t<_SrcIt>>(_Cnt);
+                    return;
+                } else if constexpr ((_Mode & _Init) && _Rnd_src && _Rnd_dst) {
+                    if constexpr (_Mode & _Move) {
+                        _RANGES move(_USrc, _USrc + _Cnt, _UDst);
+                    } else {
+                        _RANGES copy_n(_USrc, _Cnt, _UDst);
+                    }
+                    _Dst += static_cast<iter_difference_t<_DstIt>>(_Cnt);
+                    _Src += static_cast<iter_difference_t<_SrcIt>>(_Cnt);
+                    return;
                 }
-                _Dst._Advance(_Cnt);
-                _Src += static_cast<iter_difference_t<_SrcIt>>(_Cnt);
-            } else if constexpr ((_Mode & _Init) && _Rnd_src && _Rnd_dst) {
-                if constexpr (_Mode & _Move) {
-                    _RANGES move(_USrc, _USrc + _Cnt, _UDst);
-                } else {
-                    _RANGES copy_n(_USrc, _Cnt, _UDst);
-                }
-                _Dst += static_cast<iter_difference_t<_DstIt>>(_Cnt);
-                _Src += static_cast<iter_difference_t<_SrcIt>>(_Cnt);
-            } else {
-                do {
-                    _Lambdas::_Do_output<_Mode>(_Dst, *_Src);
-                    ++_Src;
-                    --_Cnt;
-                } while (_Cnt != 0);
             }
+
+            do {
+                _Lambdas::_Do_output<_Mode>(_Dst, *_Src);
+                ++_Src;
+                --_Cnt;
+            } while (_Cnt != 0);
         }
 
     public:
@@ -1838,20 +1838,23 @@ struct _Hive_lambdas_provider {
             _STL_INTERNAL_STATIC_ASSERT(!(_Mode & (_Copy | _Move)));
             return [&]<class _DstIt>(_DstIt&& _Dest, _Block_size_t _Cnt) {
                 _STL_INTERNAL_CHECK(_Cnt > 0);
-                if constexpr (_Treat_union_as_ty && ((_Mode & _Uninit) || _Hive_local_ptr<_DstIt>) ) {
-                    if constexpr (_Mode & _Uninit) {
-                        _STD _Uninitialized_fill_n(_Dest._Get_ptr(), _Cnt, _Val, _Dest._Get_al());
-                        _Dest._Advance(_Cnt);
-                    } else {
-                        _RANGES fill_n(_STD to_address(_Dest), _Cnt, _Val);
-                        _Dest += _Cnt;
+                if !consteval {
+                    if constexpr (_Treat_union_as_ty && ((_Mode & _Uninit) || _Hive_local_ptr<_DstIt>) ) {
+                        if constexpr (_Mode & _Uninit) {
+                            _STD _Uninitialized_fill_n(_Dest._Get_ptr(), _Cnt, _Val, _Dest._Get_al());
+                            _Dest._Advance(_Cnt);
+                        } else {
+                            _RANGES fill_n(_STD to_address(_Dest), _Cnt, _Val);
+                            _Dest += _Cnt;
+                        }
+                        return;
                     }
-                } else {
-                    do {
-                        _Lambdas::_Do_output<_Mode>(_Dest, _Val);
-                        --_Cnt;
-                    } while (_Cnt != 0);
                 }
+
+                do {
+                    _Lambdas::_Do_output<_Mode>(_Dest, _Val);
+                    --_Cnt;
+                } while (_Cnt != 0);
             };
         }
 
@@ -2799,30 +2802,32 @@ private:
         _STL_INTERNAL_CHECK(_Block_cap > 0);
         _STL_INTERNAL_CHECK(_Block_cap <= max_size() - _Myval._Capacity);
         _STL_INTERNAL_STATIC_ASSERT(is_implicit_lifetime_v<_Block>);
-        _STL_INTERNAL_STATIC_ASSERT(is_implicit_lifetime_v<_Union>);
+        // _STL_INTERNAL_STATIC_ASSERT(is_implicit_lifetime_v<_Union>); // FIXME
 
-        if constexpr (_Merge_alloc) {
-            using _Skip_t    = _Block::_Skipfield_t;
-            using _Alskip    = _Rebind_alloc_t<_Alloc, _Skip_t>;
-            using _Alskp_ptr = _Alloc_ptr_t<_Alskip>;
-            _STL_INTERNAL_STATIC_ASSERT(alignof(_Block) >= alignof(_Skip_t));
+        if !consteval {
+            if constexpr (_Merge_alloc) {
+                using _Skip_t    = _Block::_Skipfield_t;
+                using _Alskip    = _Rebind_alloc_t<_Alloc, _Skip_t>;
+                using _Alskp_ptr = _Alloc_ptr_t<_Alskip>;
+                _STL_INTERNAL_STATIC_ASSERT(alignof(_Block) >= alignof(_Skip_t));
 
-            const auto _Count = hive::_Get_merged_alloc_count(_Block_cap);
-            if (_STD in_range<_Alchrs_size_t>(_Count)) {
-                _Alchrs _Alc(_Al);
-                _Alloc_construct_n_ptr _Buf(_Alc, static_cast<_Alchrs_size_t>(_Count));
-                _Buf._Allocate();
+                const auto _Count = hive::_Get_merged_alloc_count(_Block_cap);
+                if (_STD in_range<_Alchrs_size_t>(_Count)) {
+                    _Alchrs _Alc(_Al);
+                    _Alloc_construct_n_ptr _Buf(_Alc, static_cast<_Alchrs_size_t>(_Count));
+                    _Buf._Allocate();
 
-                _Alblk _Alb(_Al);
-                const auto _New_block = _Alblk_traits::allocate(_Alb, 1, _Buf._Ptr); // no need to be protected
+                    _Alblk _Alb(_Al);
+                    const auto _New_block = _Alblk_traits::allocate(_Alb, 1, _Buf._Ptr); // no need to be protected
 
-                const auto _Buf_raw = _STD to_address(_Buf._Release());
-                _New_block->_Data   = pointer_traits<_Union_ptr>::pointer_to(*reinterpret_cast<_Union*>(_Buf_raw));
-                _New_block->_Skip =
-                    pointer_traits<_Alskp_ptr>::pointer_to(*reinterpret_cast<_Skip_t*>(_Buf_raw + _Block_cap));
-                _New_block->_Capacity = _Block_cap;
+                    const auto _Buf_raw = _STD to_address(_Buf._Release());
+                    _New_block->_Data   = pointer_traits<_Union_ptr>::pointer_to(*reinterpret_cast<_Union*>(_Buf_raw));
+                    _New_block->_Skip =
+                        pointer_traits<_Alskp_ptr>::pointer_to(*reinterpret_cast<_Skip_t*>(_Buf_raw + _Block_cap));
+                    _New_block->_Capacity = _Block_cap;
 
-                return _Temp_new_block{*this, _New_block};
+                    return _Temp_new_block{*this, _New_block};
+                }
             }
         }
 
@@ -2834,6 +2839,11 @@ private:
         _Alloc_construct_n_ptr _New_data(_Alu, _Block_cap);
         _New_data._Allocate();
 
+        if consteval {
+            _STD construct_at(_STD to_address(_New_block._Ptr));
+            _STD _Uninitialized_value_construct_n_unchecked1(_New_data._Ptr, _Block_cap);
+        }
+
         if constexpr (!_Bitset_mode) {
             using _Skip_t     = _Block::_Skipfield_t;
             using _Alskip     = _Rebind_alloc_t<_Alloc, _Skip_t>;
@@ -2843,6 +2853,10 @@ private:
                 allocator_traits<_Alskip>::allocate(_Als, static_cast<_Alskp_size>(_Block_cap + 1uz),
                     _New_data._Ptr); // no need to be protected
             _STL_INTERNAL_STATIC_ASSERT(is_implicit_lifetime_v<_Skip_t>);
+
+            if consteval {
+                _STD _Uninitialized_value_construct_n_unchecked1(_New_block._Ptr->_Skip, _Block_cap + 1uz);
+            }
         }
 
         _New_block._Ptr->_Data     = _New_data._Release();
@@ -3036,29 +3050,32 @@ private:
     }
 
 public:
-    explicit hive(size_type _Count, const _Alloc& _Allocator = _Alloc())
+    constexpr explicit hive(size_type _Count, const _Alloc& _Allocator = _Alloc())
         : hive(_Count, block_capacity_default_limits(), _Allocator) {}
-    hive(size_type _Count, hive_limits _Block_limits, const _Alloc& _Allocator = _Alloc())
+    constexpr hive(size_type _Count, hive_limits _Block_limits, const _Alloc& _Allocator = _Alloc())
         : _Al(_Allocator), _Myval(_Block_limits) {
         _Verify_limits(_Block_limits);
         this->_Construct_n(_Count, [](_Temp_new_block& _Blk, _Block_size_t _Cnt) _STATIC_CALL_OPERATOR {
             _STL_INTERNAL_CHECK(_Cnt > 0);
-            if constexpr (_Treat_union_as_ty) {
-                _STD _Uninitialized_value_construct_n(_Blk._Get_ptr(), _Cnt, _Blk._Get_al());
-                _Blk._Advance(_Cnt);
-            } else {
-                do {
-                    _Blk._Emplace();
-                    --_Cnt;
-                } while (_Cnt != 0);
+            if !consteval {
+                if constexpr (_Treat_union_as_ty) {
+                    _STD _Uninitialized_value_construct_n(_Blk._Get_ptr(), _Cnt, _Blk._Get_al());
+                    _Blk._Advance(_Cnt);
+                    return;
+                }
             }
+
+            do {
+                _Blk._Emplace();
+                --_Cnt;
+            } while (_Cnt != 0);
         });
         _STL_INTERNAL_CHECK_CONTAINER_INVARIANTS;
     }
 
-    hive(size_type _Count, const _Ty& _Val, const _Alloc& _Allocator = _Alloc())
+    constexpr hive(size_type _Count, const _Ty& _Val, const _Alloc& _Allocator = _Alloc())
         : hive(_Count, _Val, block_capacity_default_limits(), _Allocator) {}
-    hive(size_type _Count, const _Ty& _Val, hive_limits _Block_limits, const _Alloc& _Allocator = _Alloc())
+    constexpr hive(size_type _Count, const _Ty& _Val, hive_limits _Block_limits, const _Alloc& _Allocator = _Alloc())
         : _Al(_Allocator), _Myval(_Block_limits) {
         _Verify_limits(_Block_limits);
         this->_Construct_n(_Count, _Lambdas::template _Fill_blk<_Lambdas::_Uninit>(_Val));
@@ -3100,7 +3117,7 @@ private:
 
 public:
     template <_Iterator_for_container _Iter>
-    hive(_Iter _First, _Iter _Last, const _Alloc& _Allocator = _Alloc())
+    constexpr hive(_Iter _First, _Iter _Last, const _Alloc& _Allocator = _Alloc())
         : _Al(_Allocator), _Myval(block_capacity_default_limits()) {
         this->_Dispatch_range_oper(
             _First, _Last, [this](auto&&... _Args) { this->_Construct_sized_rng(_Args...); },
@@ -3108,7 +3125,7 @@ public:
         _STL_INTERNAL_CHECK_CONTAINER_INVARIANTS;
     }
     template <_Iterator_for_container _Iter>
-    hive(_Iter _First, _Iter _Last, hive_limits _Block_limits, const _Alloc& _Allocator = _Alloc())
+    constexpr hive(_Iter _First, _Iter _Last, hive_limits _Block_limits, const _Alloc& _Allocator = _Alloc())
         : _Al(_Allocator), _Myval(_Block_limits) {
         _Verify_limits(_Block_limits);
         this->_Dispatch_range_oper(
@@ -3118,10 +3135,10 @@ public:
     }
 
     template <_Container_compatible_range<_Ty> _Rng>
-    hive(from_range_t, _Rng&& _Range, const _Alloc& _Allocator = _Alloc())
+    constexpr hive(from_range_t, _Rng&& _Range, const _Alloc& _Allocator = _Alloc())
         : hive(from_range, _Range, block_capacity_default_limits(), _Allocator) {}
     template <_Container_compatible_range<_Ty> _Rng>
-    hive(from_range_t, _Rng&& _Range, hive_limits _Block_limits, const _Alloc& _Allocator = _Alloc())
+    constexpr hive(from_range_t, _Rng&& _Range, hive_limits _Block_limits, const _Alloc& _Allocator = _Alloc())
         : _Al(_Allocator), _Myval(_Block_limits) {
         _Verify_limits(_Block_limits);
         this->_Dispatch_range_oper(
@@ -3151,19 +3168,20 @@ private:
     }
 
 public:
-    hive(const hive& _Right) : hive(_Right, _Alty_traits::select_on_container_copy_construction(_Right._Al)) {}
-    hive(hive&& _Right) noexcept : _Al(_STD move(_Right._Al)), _Myval(_Right._Myval._Limits) {
+    constexpr hive(const hive& _Right)
+        : hive(_Right, _Alty_traits::select_on_container_copy_construction(_Right._Al)) {}
+    constexpr hive(hive&& _Right) noexcept : _Al(_STD move(_Right._Al)), _Myval(_Right._Myval._Limits) {
         _Myval._Move_from(_Right._Myval);
         _STL_INTERNAL_CHECK_CONTAINER_INVARIANTS;
     }
 
-    hive(const hive& _Right, const type_identity_t<_Alloc>& _Allocator)
+    constexpr hive(const hive& _Right, const type_identity_t<_Alloc>& _Allocator)
         : _Al(_Allocator), _Myval(_Right._Myval._Limits) {
         this->_Copy_move_construct_common(_Right);
         _STL_INTERNAL_CHECK_CONTAINER_INVARIANTS;
     }
 
-    hive(hive&& _Right, const type_identity_t<_Alloc>& _Allocator)
+    constexpr hive(hive&& _Right, const type_identity_t<_Alloc>& _Allocator)
         noexcept(_Alty_traits::is_always_equal::value) // strengthened
         : _Al(_Allocator), _Myval(_Right._Myval._Limits) {
         _STL_INTERNAL_CHECK_CONTAINER_INVARIANTS_GUARD(_Right, _Check_right);
@@ -3182,8 +3200,9 @@ public:
         _STL_INTERNAL_CHECK_CONTAINER_INVARIANTS;
     }
 
-    hive(initializer_list<_Ty> _Ilist, const _Alloc& _Allocator = _Alloc()) : hive(from_range, _Ilist, _Allocator) {}
-    hive(initializer_list<_Ty> _Ilist, hive_limits _Block_limits, const _Alloc& _Allocator = _Alloc())
+    constexpr hive(initializer_list<_Ty> _Ilist, const _Alloc& _Allocator = _Alloc())
+        : hive(from_range, _Ilist, _Allocator) {}
+    constexpr hive(initializer_list<_Ty> _Ilist, hive_limits _Block_limits, const _Alloc& _Allocator = _Alloc())
         : hive(from_range, _Ilist, _Block_limits, _Allocator) {}
 
 private:
@@ -3202,21 +3221,23 @@ private:
 
     // does not destroy elements
     constexpr void _Dealloc_block(_Block_ptr _Blk) const noexcept {
-        if constexpr (_Merge_alloc) {
-            const auto _Count = hive::_Get_merged_alloc_count(_Blk->_Capacity);
-            if (_STD in_range<_Alchrs_size_t>(_Count)) {
-                {
-                    _Alchrs _Alc(_Al);
-                    const auto _Chars_ptr       = reinterpret_cast<_Aligned_chars*>(_STD to_address(_Blk->_Data));
-                    const auto _Chars_fancy_ptr = pointer_traits<_Aligned_chars_ptr>::pointer_to(*_Chars_ptr);
-                    _Alchrs_traits::deallocate(_Alc, _Chars_fancy_ptr, static_cast<_Alchrs_size_t>(_Count));
-                }
-                {
-                    _Alblk _Alb(_Al);
-                    _Alblk_traits::deallocate(_Alb, _Blk, 1);
-                }
+        if !consteval {
+            if constexpr (_Merge_alloc) {
+                const auto _Count = hive::_Get_merged_alloc_count(_Blk->_Capacity);
+                if (_STD in_range<_Alchrs_size_t>(_Count)) {
+                    {
+                        _Alchrs _Alc(_Al);
+                        const auto _Chars_ptr       = reinterpret_cast<_Aligned_chars*>(_STD to_address(_Blk->_Data));
+                        const auto _Chars_fancy_ptr = pointer_traits<_Aligned_chars_ptr>::pointer_to(*_Chars_ptr);
+                        _Alchrs_traits::deallocate(_Alc, _Chars_fancy_ptr, static_cast<_Alchrs_size_t>(_Count));
+                    }
+                    {
+                        _Alblk _Alb(_Al);
+                        _Alblk_traits::deallocate(_Alb, _Blk, 1);
+                    }
 
-                return;
+                    return;
+                }
             }
         }
 
@@ -3257,7 +3278,7 @@ private:
     friend _Tidy_guard<hive>;
 
 public:
-    ~hive() noexcept {
+    constexpr ~hive() noexcept {
         _STL_INTERNAL_CHECK_CONTAINER_INVARIANTS;
         _Tidy();
     }
@@ -3462,7 +3483,7 @@ private:
     }
 
 public:
-    hive& operator=(const hive& _Right) {
+    constexpr hive& operator=(const hive& _Right) {
         if (_STD addressof(_Right) == this) {
             return *this;
         }
@@ -3481,7 +3502,8 @@ public:
         return *this;
     }
 
-    hive& operator=(hive&& _Right) noexcept(_Choose_pocma_v<_Alty> != _Pocma_values::_No_propagate_allocators) {
+    constexpr hive& operator=(hive&& _Right)
+        noexcept(_Choose_pocma_v<_Alty> != _Pocma_values::_No_propagate_allocators) {
         if (_STD addressof(_Right) == this) {
             return *this;
         }
@@ -3554,20 +3576,20 @@ public:
         return *this;
     }
 
-    hive& operator=(initializer_list<_Ty> _Ilist) {
+    constexpr hive& operator=(initializer_list<_Ty> _Ilist) {
         this->assign_range(_Ilist);
         return *this;
     }
 
     template <_Iterator_for_container _Iter>
-    void assign(_Iter _First, _Iter _Last) {
+    constexpr void assign(_Iter _First, _Iter _Last) {
         _STL_INTERNAL_CHECK_CONTAINER_INVARIANTS_GUARD(*this, _Check_self);
         this->_Dispatch_range_oper(
             _First, _Last, [this](auto&&... _Args) { this->_Assign_sized_rng(_Args...); },
             [this](auto&&... _Args) { this->_Assign_unsized_rng(_Args...); });
     }
     template <_Container_compatible_range<_Ty> _Rng>
-    void assign_range(_Rng&& _Range) {
+    constexpr void assign_range(_Rng&& _Range) {
         static_assert(assignable_from<_Ty&, _RANGES range_reference_t<_Rng>>,
             "Elements must be assignable from the range's reference type (N5032 [sequence.reqmts]/61).");
         _STL_INTERNAL_CHECK_CONTAINER_INVARIANTS_GUARD(*this, _Check_self);
@@ -3580,69 +3602,69 @@ public:
             });
     }
 
-    void assign(size_type _Count, const _Ty& _Val) {
+    constexpr void assign(size_type _Count, const _Ty& _Val) {
         _STL_INTERNAL_CHECK_CONTAINER_INVARIANTS_GUARD(*this, _Check_self);
         this->_Assign_n(_Count, _Lambdas::template _Fill_blk<_Lambdas::_Uninit>(_Val),
             _Lambdas::template _Fill_blk<_Lambdas::_Init>(_Val));
     }
 
-    void assign(initializer_list<_Ty> _Ilist) {
+    constexpr void assign(initializer_list<_Ty> _Ilist) {
         this->assign_range(_Ilist);
     }
 
-    _NODISCARD allocator_type get_allocator() const noexcept {
+    _NODISCARD constexpr allocator_type get_allocator() const noexcept {
         return static_cast<allocator_type>(_Al);
     }
 
     // iterators
-    _NODISCARD iterator begin() noexcept {
+    _NODISCARD constexpr iterator begin() noexcept {
         return cbegin()._Mutable();
     }
-    _NODISCARD const_iterator begin() const noexcept {
+    _NODISCARD constexpr const_iterator begin() const noexcept {
         return cbegin();
     }
-    _NODISCARD iterator end() noexcept {
+    _NODISCARD constexpr iterator end() noexcept {
         return cend()._Mutable();
     }
-    _NODISCARD const_iterator end() const noexcept {
+    _NODISCARD constexpr const_iterator end() const noexcept {
         return cend();
     }
-    _NODISCARD reverse_iterator rbegin() noexcept {
+    _NODISCARD constexpr reverse_iterator rbegin() noexcept {
         return reverse_iterator{end()};
     }
-    _NODISCARD const_reverse_iterator rbegin() const noexcept {
+    _NODISCARD constexpr const_reverse_iterator rbegin() const noexcept {
         return const_reverse_iterator{end()};
     }
-    _NODISCARD reverse_iterator rend() noexcept {
+    _NODISCARD constexpr reverse_iterator rend() noexcept {
         return reverse_iterator{begin()};
     }
-    _NODISCARD const_reverse_iterator rend() const noexcept {
+    _NODISCARD constexpr const_reverse_iterator rend() const noexcept {
         return const_reverse_iterator{begin()};
     }
-    _NODISCARD const_iterator cbegin() const noexcept {
+    _NODISCARD constexpr const_iterator cbegin() const noexcept {
         const auto _Blk = _Myval._Active_begin();
         return {_Blk, _Blk->_First_element()};
     }
-    _NODISCARD const_iterator cend() const noexcept {
+    _NODISCARD constexpr const_iterator cend() const noexcept {
         const auto _Sent = const_cast<_Scary_val&>(_Myval)._Sent();
         return {_Block_iter_active{_Sent}, 0};
     }
-    _NODISCARD const_reverse_iterator crbegin() const noexcept {
+    _NODISCARD constexpr const_reverse_iterator crbegin() const noexcept {
         return rbegin();
     }
-    _NODISCARD const_reverse_iterator crend() const noexcept {
+    _NODISCARD constexpr const_reverse_iterator crend() const noexcept {
         return rend();
     }
 
     // [hive.capacity], capacity
-    _NODISCARD_EMPTY_MEMBER bool empty() const noexcept {
+    _NODISCARD_EMPTY_MEMBER constexpr bool empty() const noexcept {
         return _Myval._Size == 0;
     }
-    _NODISCARD size_type size() const noexcept {
+    _NODISCARD constexpr size_type size() const noexcept {
         return _Myval._Size;
     }
 
-    _NODISCARD size_type max_size() const noexcept {
+    _NODISCARD constexpr size_type max_size() const noexcept {
         if constexpr (_Max_limit_may_be_zero) {
             // Note: The return value of the allocator's max_size() may change at runtime, so we must handle it manually
             // here.
@@ -3654,11 +3676,11 @@ public:
             _Alunion_traits::max_size(_Alunion(_Al)));
     }
 
-    _NODISCARD size_type capacity() const noexcept {
+    _NODISCARD constexpr size_type capacity() const noexcept {
         return _Myval._Capacity;
     }
 
-    void reserve(size_type _New_capacity) {
+    constexpr void reserve(size_type _New_capacity) {
         if (_New_capacity <= _Myval._Capacity) {
             return;
         }
@@ -3876,7 +3898,7 @@ private:
     }
 
 public:
-    void shrink_to_fit() {
+    constexpr void shrink_to_fit() {
         if (_Myval._Capacity == _Myval._Size) {
             return;
         }
@@ -3916,11 +3938,11 @@ public:
         this->trim_capacity();
     }
 
-    void trim_capacity() noexcept {
+    constexpr void trim_capacity() noexcept {
         _Trim_capacity();
         _STL_INTERNAL_CHECK_CONTAINER_INVARIANTS;
     }
-    void trim_capacity(size_type _Min_capacity) noexcept {
+    constexpr void trim_capacity(size_type _Min_capacity) noexcept {
         auto& _Res_first = _Myval._Reserved_first;
         while (_Res_first != nullptr && _Myval._Capacity - _Res_first->_Capacity >= _Min_capacity) {
             _Myval._Capacity -= _Res_first->_Capacity;
@@ -3998,7 +4020,7 @@ public:
         return {1, (_STD min) (_Allocator_max, _Hard_limits_max)};
     }
 
-    void reshape(hive_limits _New_limits_) {
+    constexpr void reshape(hive_limits _New_limits_) {
         _Verify_limits(_New_limits_);
 
         const auto _Old_limits      = _Myval._Limits;
@@ -4055,7 +4077,7 @@ public:
 
     // [hive.modifiers], modifiers
     template <class... _Valty>
-    iterator emplace(_Valty&&... _Val) {
+    constexpr iterator emplace(_Valty&&... _Val) {
         _STL_INTERNAL_CHECK_CONTAINER_INVARIANTS_GUARD(*this, _Check_self);
         iterator _Ret;
         const auto _Nonfull = _Myval._Nonfull_begin();
@@ -4098,19 +4120,19 @@ public:
     }
 
     template <class... _Valty>
-    iterator emplace_hint(const_iterator, _Valty&&... _Val) {
+    constexpr iterator emplace_hint(const_iterator, _Valty&&... _Val) {
         return this->emplace(_STD forward<_Valty>(_Val)...);
     }
-    iterator insert(const _Ty& _Val) {
+    constexpr iterator insert(const _Ty& _Val) {
         return this->emplace(_Val);
     }
-    iterator insert(_Ty&& _Val) {
+    constexpr iterator insert(_Ty&& _Val) {
         return this->emplace(_STD move(_Val));
     }
-    iterator insert(const_iterator, const _Ty& _Val) {
+    constexpr iterator insert(const_iterator, const _Ty& _Val) {
         return this->emplace(_Val);
     }
-    iterator insert(const_iterator, _Ty&& _Val) {
+    constexpr iterator insert(const_iterator, _Ty&& _Val) {
         return this->emplace(_STD move(_Val));
     }
 
@@ -4250,12 +4272,12 @@ private:
     }
 
 public:
-    void insert(initializer_list<_Ty> _Ilist) {
+    constexpr void insert(initializer_list<_Ty> _Ilist) {
         this->insert_range(_Ilist);
     }
 
     template <_Container_compatible_range<_Ty> _Rng>
-    void insert_range(_Rng&& _Range) {
+    constexpr void insert_range(_Rng&& _Range) {
         _STL_INTERNAL_CHECK_CONTAINER_INVARIANTS_GUARD(*this, _Check_self);
         this->_Dispatch_range_oper(
             _Range, [this](auto&&... _Args) { this->_Insert_sized_rng(_Args...); },
@@ -4269,14 +4291,14 @@ public:
             });
     }
     template <_Iterator_for_container _Iter>
-    void insert(_Iter _First, _Iter _Last) {
+    constexpr void insert(_Iter _First, _Iter _Last) {
         _STL_INTERNAL_CHECK_CONTAINER_INVARIANTS_GUARD(*this, _Check_self);
         this->_Dispatch_range_oper(
             _First, _Last, [this](auto&&... _Args) { this->_Insert_sized_rng(_Args...); },
             [this](auto&&... _Args) { this->_Insert_unsized_rng(_Args...); });
     }
 
-    void insert(size_type _Count, const _Ty& _Val) {
+    constexpr void insert(size_type _Count, const _Ty& _Val) {
         _STL_INTERNAL_CHECK_CONTAINER_INVARIANTS_GUARD(*this, _Check_self);
         this->_Insert_n(_Count, _Lambdas::template _Fill_blk<_Lambdas::_Uninit>(_Val));
     }
@@ -4398,7 +4420,7 @@ private:
     }
 
 public:
-    iterator erase(const_iterator _Where) noexcept /* strengthened */ {
+    constexpr iterator erase(const_iterator _Where) noexcept /* strengthened */ {
 #if _ITERATOR_DEBUG_LEVEL != 0
         _STL_VERIFY(_Myval._Is_parent_of(_Where) && !_Where._Is_end(), "hive erase iterator outside range");
 #endif // _ITERATOR_DEBUG_LEVEL != 0
@@ -4411,7 +4433,7 @@ public:
         return iterator{_URet._Blk, _URet._Index};
     }
 
-    iterator erase(const_iterator _First, const_iterator _Last) noexcept /* strengthened */ {
+    constexpr iterator erase(const_iterator _First, const_iterator _Last) noexcept /* strengthened */ {
 #if _ITERATOR_DEBUG_LEVEL != 0
         _STL_VERIFY(_Myval._Is_parent_of(_First), "hive erase iterator outside range");
         _STD _Adl_verify_range(_First, _Last);
@@ -4422,7 +4444,7 @@ public:
         return _Last._Mutable(); // _Mutable ignores the invalidity
     }
 
-    void swap(hive& _Right) noexcept /* strengthened */ {
+    constexpr void swap(hive& _Right) noexcept /* strengthened */ {
         if (this != _STD addressof(_Right)) {
             _STD _Pocs(_Al, _Right._Al);
             _Myval._Swap(_Right._Myval);
@@ -4435,7 +4457,7 @@ public:
         _STL_INTERNAL_CHECK_CONTAINER_INVARIANTS;
     }
 
-    void clear() noexcept {
+    constexpr void clear() noexcept {
         // does not deallocate; always reserves all active blocks
         // O(1) if the destruction is trivial
 
@@ -4459,7 +4481,7 @@ public:
     }
 
     // [hive.operations], hive operations
-    void splice(hive& _Right) {
+    constexpr void splice(hive& _Right) {
 #if _ITERATOR_DEBUG_LEVEL != 0
         if constexpr (!_Alty_traits::is_always_equal::value) {
             _STL_VERIFY(_Al == _Right._Al, "hive allocators incompatible for splice");
@@ -4511,12 +4533,12 @@ public:
 
         _STL_INTERNAL_CHECK_CONTAINER_INVARIANTS;
     }
-    void splice(hive&& _Right) {
+    constexpr void splice(hive&& _Right) {
         this->splice(_Right);
     }
 
     template <class _Pr2 = equal_to<_Ty>>
-    size_type unique(_Pr2 _Pred = _Pr2()) noexcept(
+    constexpr size_type unique(_Pr2 _Pred = _Pr2()) noexcept(
         noexcept(static_cast<bool>(_Pred(_STD declval<const _Ty&>(), _STD declval<const _Ty&>())))) /* strengthened */ {
         static_assert(
             requires(const _Ty& _Val) {
@@ -4689,7 +4711,7 @@ private:
 
 public:
     template <class _Pr2 = less<_Ty>>
-    void sort(_Pr2 _Pred = _Pr2()) {
+    constexpr void sort(_Pr2 _Pred = _Pr2()) {
         static_assert(
             requires(const _Ty& _Val) {
                 { _Pred(_Val, _Val) } -> _Boolean_testable;
@@ -4747,6 +4769,7 @@ public:
         }
     }
 
+    // FIXME
     _NODISCARD iterator get_iterator(const_pointer _Ptr) noexcept {
         return static_cast<const hive*>(this)->get_iterator(_Ptr)._Mutable();
     }
@@ -4798,9 +4821,9 @@ public:
 private:
     // TRANSITION, VSO-2680018: `typename` should be dropped
     template <class _Ty0, class _Alloc0, class _Uty>
-    friend typename hive<_Ty0, _Alloc0>::size_type erase(hive<_Ty0, _Alloc0>& _Cont, const _Uty& _Val);
+    friend constexpr typename hive<_Ty0, _Alloc0>::size_type erase(hive<_Ty0, _Alloc0>& _Cont, const _Uty& _Val);
     template <class _Ty0, class _Alloc0, class _Pr>
-    friend typename hive<_Ty0, _Alloc0>::size_type erase_if(hive<_Ty0, _Alloc0>& _Cont, _Pr _Pred);
+    friend constexpr typename hive<_Ty0, _Alloc0>::size_type erase_if(hive<_Ty0, _Alloc0>& _Cont, _Pr _Pred);
 
     template <class _Pr>
     constexpr size_type _Erase_if(_Pr _Pred) {
@@ -4873,16 +4896,16 @@ template <_RANGES input_range _Rng, _Allocator_for_container _Alloc = allocator<
 hive(from_range_t, _Rng&&, hive_limits, _Alloc = _Alloc()) -> hive<_RANGES range_value_t<_Rng>, _Alloc>;
 
 _EXPORT_STD template <class _Ty, class _Alloc>
-void swap(hive<_Ty, _Alloc>& _Left, hive<_Ty, _Alloc>& _Right) noexcept(noexcept(_Left.swap(_Right))) {
+constexpr void swap(hive<_Ty, _Alloc>& _Left, hive<_Ty, _Alloc>& _Right) noexcept(noexcept(_Left.swap(_Right))) {
     _Left.swap(_Right);
 }
 
 _EXPORT_STD template <class _Ty, class _Alloc, class _Uty = _Ty>
-hive<_Ty, _Alloc>::size_type erase(hive<_Ty, _Alloc>& _Cont, const _Uty& _Val) {
+constexpr hive<_Ty, _Alloc>::size_type erase(hive<_Ty, _Alloc>& _Cont, const _Uty& _Val) {
     return _Cont._Erase_if([&](const auto& _Elem) -> bool { return _Elem == _Val; });
 }
 _EXPORT_STD template <class _Ty, class _Alloc, class _Pr>
-hive<_Ty, _Alloc>::size_type erase_if(hive<_Ty, _Alloc>& _Cont, _Pr _Pred) {
+constexpr hive<_Ty, _Alloc>::size_type erase_if(hive<_Ty, _Alloc>& _Cont, _Pr _Pred) {
     return _Cont._Erase_if(_STD _Pass_fn(_Pred));
 }
 

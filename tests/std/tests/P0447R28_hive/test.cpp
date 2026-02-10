@@ -1,4 +1,15 @@
 // clang-format off
+#pragma warning(disable : 4365) // conversion from 'type_1' to 'type_2', signed/unsigned mismatch
+#pragma warning(disable : 5267) // definition of implicit copy constructor/assignment operator for 'type' is deprecated because it has a user-provided assignment operator/copy constructor
+#pragma warning(disable : 6031) // return value ignored
+#pragma warning(disable : 6340) // mismatch on sign
+#ifdef __clang__
+#pragma clang diagnostic ignored "-Wunused-but-set-variable"
+#endif // defined(__clang__)
+
+// Based on https://github.com/mattreecebentley/plf_hive/blob/9f762762231c28d5f11cd3d06be2b802f4c071f0/plf_hive_test_suite.cpp
+// Search "nonstandard" to locate all modifications and their reasons.
+
 // Basic feature testing code for hive
 
 #include <numeric> // std::accumulate
@@ -10,7 +21,8 @@
 #include <utility> // std::move
 #include <ranges>
 
-#include "plf_hive.h"
+// #include "plf_hive.h" // nonstandard
+#include <hive>
 
 
 void message(const char *message_text)
@@ -118,7 +130,18 @@ struct small_struct_non_trivial
 };
 
 
+// vvv nonstandard vvv
+namespace plf
+{
+	using std::hive;
+	using std::hive_limits;
 
+	namespace ranges
+	{
+		using std::from_range;
+	}
+}
+// ^^^ nonstandard ^^^
 
 
 int main()
@@ -126,6 +149,8 @@ int main()
 	freopen("error.log","w", stderr); // For catching assertion failure info when run outside of a command line prompt
 	using namespace plf;
 
+	// nonstandard - iterators are implementation-defined and not necessarily trivially copyable
+	/*
 	title2("Trivially copyable iterators tests");
 
 	{
@@ -149,6 +174,7 @@ int main()
 
 	message("Press Enter to continue");
 	getchar();
+	*/
 
 	for (unsigned int looper = 0; looper != 100; ++looper)
 	{
@@ -205,7 +231,9 @@ int main()
 			{
 				hive<int> d_hive(1000, 1, {20, 20});
 
-				for (hive<int>::iterator current = d_hive.begin(), end = d_hive.end(); current!= end;)
+				// nonstandard - erasing the last element invalidates the past-the-end iterator
+				// for (hive<int>::iterator current = d_hive.begin(), end = d_hive.end(); current!= end;)
+				for (hive<int>::iterator current = d_hive.begin(); current != d_hive.end();)
 				{
 					if ((rand() & 7) == 0)
 					{
@@ -240,7 +268,9 @@ int main()
 				failpass("Positive distance overload fuzz-test", true);
 
 
-				for (hive<int>::iterator current = d_hive.begin(), end = d_hive.end(); current!= end;)
+				// nonstandard - erasing the last element invalidates the past-the-end iterator
+				// for (hive<int>::iterator current = d_hive.begin(), end = d_hive.end(); current!= end;)
+				for (hive<int>::iterator current = d_hive.begin(); current != d_hive.end();)
 				{
 					if ((rand() & 3) == 0)
 					{
@@ -277,7 +307,7 @@ int main()
 
 
 			hive<int *>::const_iterator plus_two_hundred_c = plus_two_hundred;
-			hive<int *> hive_copy(plus_twenty, plus_two_hundred_c);
+			hive<int *> hive_copy(plus_twenty, plus_two_hundred/*_c*/); // nonstandard
 
 			total = 0;
 
@@ -384,10 +414,26 @@ int main()
 
 			total = 0;
 
+			// nonstandard - end iterator cannot be incremented or erased
+			/*
 			for(hive<int *>::iterator the_iterator = ++hive<int *>::iterator(p_hive.begin()); the_iterator < p_hive.end(); ++the_iterator)
 			{
 				++total;
 				the_iterator = p_hive.erase(the_iterator);
+			}
+			*/
+			for(hive<int *>::iterator the_iterator = ++hive<int *>::iterator(p_hive.begin()); ; ++the_iterator)
+			{
+				if (the_iterator >= p_hive.end())
+				{
+					break;
+				}
+				++total;
+				the_iterator = p_hive.erase(the_iterator);
+				if (the_iterator >= p_hive.end())
+				{
+					break;
+				}
 			}
 
 			failpass("Partial erase iteration test", total == 200);
@@ -407,7 +453,16 @@ int main()
 
 			total = 0;
 
+			// nonstandard - `erase()` invalidates `the_iterator`, and you cannot increment an invalid iterator
+			/*
 			for(hive<int *>::reverse_iterator the_iterator = p_hive.rbegin(); the_iterator != p_hive.rend(); ++the_iterator)
+			{
+				hive<int *>::iterator it = the_iterator.base();
+				p_hive.erase(--it);
+				++total;
+			}
+			*/
+			for(hive<int *>::reverse_iterator the_iterator = p_hive.rbegin(); the_iterator != p_hive.rend(); the_iterator = p_hive.rbegin())
 			{
 				hive<int *>::iterator it = the_iterator.base();
 				p_hive.erase(--it);
@@ -435,7 +490,9 @@ int main()
 
 			total = 0;
 
-			for(hive<int *>::iterator the_iterator = --(hive<int *>::iterator(p_hive.end())); the_iterator != p_hive.begin(); std::advance(the_iterator, -2))
+			// nonstandard - `distance(p_hive.begin(), p_hive.end())` is 400, so `the_iterator` can never be `p_hive.begin()`
+			//               (end() - 1 => ... => end() - 397 => end() - 399 => end() - 401, boom!)
+			for(hive<int *>::iterator the_iterator = /*--*/(hive<int *>::iterator(p_hive.end())); the_iterator != p_hive.begin(); std::advance(the_iterator, -2))
 			{
 				++total;
 			}
@@ -620,8 +677,19 @@ int main()
 				{
 					if ((rand() & 3) == 0)
 					{
+						// nonstandard - `insert()` invalidates the past-the-end iterator. If `the_iterator` is `end()`,
+						//               it becomes invalid, and comparing an invalid iterator is not allowed.
+						/*
 						++the_iterator;
 						i_hive.insert(1);
+						*/
+						++the_iterator;
+						const bool is_end = the_iterator == i_hive.end();
+						i_hive.insert(1);
+						if (is_end)
+						{
+							break;
+						}
 					}
 					else
 					{
@@ -711,7 +779,7 @@ int main()
 
 			i_hive.erase(temp_iterator);
 
-			failpass("get_iterator test 1", i_hive.get_iterator(&(*temp_iterator)) == i_hive.end());
+			// failpass("get_iterator test 1", i_hive.get_iterator(&(*temp_iterator)) == i_hive.end()); // nonstandard - it's UB
 
 			temp_iterator = i_hive.begin(); // Check edge-case with advance when erasures present in initial group
 
@@ -743,12 +811,12 @@ int main()
 			failpass("Total erase test", i_hive.empty());
 
 			// Test get_iterator etc on an empty hive with empty memory blocks retained:
-  			failpass("get_iterator test 3", i_hive.get_iterator(&(*temp_iterator)) == i_hive.end());
+			// failpass("get_iterator test 3", i_hive.get_iterator(&(*temp_iterator)) == i_hive.end()); // nonstandard - it's UB
 
 			i_hive.trim_capacity();
 
 			// Test get_iterator etc on a hive with no blocks:
-  			failpass("get_iterator test 4", i_hive.get_iterator(&(*temp_iterator)) == i_hive.end());
+			// failpass("get_iterator test 4", i_hive.get_iterator(&(*temp_iterator)) == i_hive.end()); // nonstandard - it's UB
 
 			i_hive.reshape(plf::hive_limits(3, i_hive.block_capacity_limits().max));
 
@@ -933,6 +1001,8 @@ int main()
 				i_hive.insert(counter);
 			}
 
+			// nonstandard - end iterator cannot be incremented or erased
+			/*
 			for (hive<int>::iterator it = i_hive.begin(); it < i_hive.end(); ++it)
 			{
 				if ((rand() & 1) == 0)
@@ -940,6 +1010,7 @@ int main()
 					it = i_hive.erase(it);
 				}
 			}
+			*/
 
 			if (i_hive.size() < 400)
 			{
@@ -1374,11 +1445,11 @@ int main()
 
 			failpass("Range insertion test", i_hive2.size() == 500503);
 
- 			i_hive2.insert(some_ints.begin(), some_ints.cend());
+ 			i_hive2.insert(some_ints.begin(), some_ints./*c*/end()); // nonstandard
 
  			failpass("Range insertion with differing iterators test", i_hive2.size() == 501003);
 
- 			i_hive3.insert(std::make_move_iterator(i_hive2.begin()), std::make_move_iterator(i_hive2.cend()));
+ 			i_hive3.insert(std::make_move_iterator(i_hive2.begin()), std::make_move_iterator(i_hive2./*c*/end())); // nonstandard
 
  			failpass("Range move-insertion test", i_hive3.size() == 506003);
 
@@ -1677,7 +1748,7 @@ int main()
 
 			temp_limits = plf::hive<int>::block_capacity_hard_limits();
 
-			failpass("block_capacity_hard_limits test", temp_limits.min == 3 && temp_limits.max == 255);
+			// failpass("block_capacity_hard_limits test", temp_limits.min == 3 && temp_limits.max == 255); // nonstandard
 
 			for (int counter = 0; counter != 3300; ++counter)
 			{
@@ -1696,6 +1767,8 @@ int main()
 
 		}
 
+		// nonstandard - `splice()` can insert the blocks in any order
+		/*
 		{
 			title2("Splice tests");
 
@@ -2031,6 +2104,7 @@ int main()
 				failpass("Post-splice insert-and-erase randomly till-empty test", hive1.size() == 0);
 			}
 		}
+		*/
 
 		{
 			title2("erase_if tests");

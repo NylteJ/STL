@@ -2623,7 +2623,7 @@ private:
 #endif // _ITERATOR_DEBUG_LEVEL != 0
     }
 
-#ifdef _ENABLE_STL_INTERNAL_CHECK
+#if 0 // O(n) internal checks are too heavyweight
     constexpr void _Check_invariants() const noexcept {
         const auto _Sent = const_cast<_Scary_val&>(_Myval)._Sent();
 

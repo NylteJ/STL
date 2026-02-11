@@ -242,6 +242,7 @@ struct _Hive_union_provider<_ValueT> {
         _ValueT _Value;
         _Free_list_node _Free;
 
+        constexpr _Union() {} // FIXME: unnecessary in C++26
         constexpr ~_Union() {} // FIXME: unnecessary in C++26
     };
 };
@@ -669,6 +670,7 @@ struct _Hive_union_provider<_ValueT> {
         _ValueT _Value;
         _Skip_t _Skip;
 
+        constexpr _Union() {} // FIXME: unnecessary in C++26
         constexpr ~_Union() {} // FIXME: unnecessary in C++26
     };
 };
@@ -2841,8 +2843,8 @@ private:
 
         if consteval {
             _STD construct_at(_STD to_address(_New_block._Ptr));
-            _STD _Uninitialized_value_construct_n_unchecked1(_New_data._Ptr, _Block_cap);
         }
+        _STD _Uninitialized_value_construct_n_unchecked1(_New_data._Ptr, _Block_cap); // FIXME
 
         if constexpr (!_Bitset_mode) {
             using _Skip_t     = _Block::_Skipfield_t;

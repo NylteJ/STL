@@ -738,6 +738,87 @@ struct _Hive_iterators_provider {
     _STL_INTERNAL_STATIC_ASSERT(!_Unwrappable_v<_Unchecked_const_iterator>);
 };
 
+template <class _UnionPtr, class _ValuePtr>
+struct _Hive_local_ptr_provider {
+    struct _Lptr {
+        // Provides iteration over the element values in a block's union array, so that other code can treat them as a
+        // non-contiguous range of elements.
+        using iterator_concept  = random_access_iterator_tag;
+        using iterator_category = random_access_iterator_tag;
+        using value_type        = pointer_traits<_ValuePtr>::element_type;
+        using difference_type   = pointer_traits<_UnionPtr>::difference_type;
+        using pointer           = _ValuePtr;
+        using reference         = value_type&;
+
+        constexpr _Lptr(_UnionPtr _Raw_ptr = nullptr) noexcept : _Raw(_Raw_ptr) {}
+        _NODISCARD constexpr reference operator*() const noexcept {
+            return _Raw->_Value;
+        }
+        _NODISCARD constexpr pointer operator->() const noexcept {
+            return pointer_traits<pointer>::pointer_to(**this);
+        }
+        _NODISCARD constexpr reference operator[](difference_type _Off) const noexcept {
+            return _Raw[_Off]._Value;
+        }
+
+        // simply forward other operators
+        constexpr _Lptr& operator++() noexcept {
+            ++_Raw;
+            return *this;
+        }
+        constexpr _Lptr operator++(int) noexcept {
+            const auto _Tmp = *this;
+            ++_Raw;
+            return _Tmp;
+        }
+        constexpr _Lptr& operator--() noexcept {
+            --_Raw;
+            return *this;
+        }
+        constexpr _Lptr operator--(int) noexcept {
+            const auto _Tmp = *this;
+            --_Raw;
+            return _Tmp;
+        }
+        constexpr _Lptr& operator+=(difference_type _Off) noexcept {
+            _Raw += _Off;
+            return *this;
+        }
+        constexpr _Lptr& operator-=(difference_type _Off) noexcept {
+            _Raw -= _Off;
+            return *this;
+        }
+        _NODISCARD constexpr difference_type operator-(const _Lptr& _Right) const noexcept {
+            return _Raw - _Right._Raw;
+        }
+        _NODISCARD constexpr bool operator==(const _Lptr& _Right) const noexcept {
+            return _Raw == _Right._Raw;
+        }
+        _NODISCARD constexpr strong_ordering operator<=>(const _Lptr& _Right) const noexcept {
+            return _STD to_address(_Raw) <=> _STD to_address(_Right._Raw);
+        }
+        _NODISCARD constexpr _Lptr operator+(difference_type _Off) const noexcept {
+            auto _Tmp = *this;
+            _Tmp += _Off;
+            return _Tmp;
+        }
+        _NODISCARD constexpr _Lptr operator-(difference_type _Off) const noexcept {
+            auto _Tmp = *this;
+            _Tmp -= _Off;
+            return _Tmp;
+        }
+        _NODISCARD friend constexpr _Lptr operator+(difference_type _Off, _Lptr _Next) noexcept {
+            _Next += _Off;
+            return _Next;
+        }
+
+        _UnionPtr _Raw;
+    };
+    _STL_INTERNAL_STATIC_ASSERT(random_access_iterator<_Lptr>);
+    _STL_INTERNAL_STATIC_ASSERT(!contiguous_iterator<_Lptr>); // because `addressof(_Raw[n]._Value)` is not equivalent
+                                                              // to `addressof(_Raw->_Value) + n` (which is actually UB)
+};
+
 template <class _BlockSizeT, class _Ty>
 class _Hive_lambdas {
 public:
@@ -837,6 +918,8 @@ struct _Hive_val_provider {
         using _Unchecked_const_iterator  = _Iters_provider::_Unchecked_const_iterator;
         using _Local_iterator            = _Iters_provider::_Local_iterator;
         using _Local_iterator_idl_common = _Iters_provider::_Local_iterator_idl_common;
+
+        using _Local_ptr = _Hive_local_ptr_provider<_Union_ptr, pointer>::_Lptr;
 
         using _Lambdas = _Hive_lambdas<_Block_size_t, value_type>;
 
@@ -1017,6 +1100,7 @@ private:
     using _Block_iter_nonfull  = _Scary_val::_Block_iter_nonfull;
     using _Block_iter_reserved = _Scary_val::_Block_iter_reserved;
 
+    using _Local_ptr                 = _Scary_val::_Local_ptr;
     using _Local_iterator            = _Scary_val::_Local_iterator;
     using _Local_iterator_idl_common = _Scary_val::_Local_iterator_idl_common;
 

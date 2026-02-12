@@ -949,6 +949,38 @@ struct _Hive_val_provider {
             return pointer_traits<_Block_ptr>::pointer_to(_Sent_block);
         }
 
+        template <class _Fn>
+        static constexpr void _Visit_block_iter_n(_Block_ptr _Blk, _Fn _Func) {
+            // pass wrapped pointer when the block is full to enable further optimizations
+            if (_Blk->_Full()) {
+                _Func(_Local_ptr{_Blk->_Data}, _Blk->_Capacity);
+            } else {
+                _Func(_Local_iterator{_Blk, _Blk->_First_element()}, _Blk->_Size);
+            }
+        }
+
+        template <class _Fn>
+        static constexpr _Block_size_t _With_block_iter(_Block_ptr _Blk, _Block_size_t _Index, _Fn _Func) {
+            // pass wrapped pointer when the block is full to enable further optimizations
+            if (_Blk->_Full()) {
+                return static_cast<_Block_size_t>(_Func(_Local_ptr{_Blk->_Data + _Index})._Raw - _Blk->_Data);
+            } else {
+                return _Func(_Local_iterator{_Blk, _Index})._Index;
+            }
+        }
+
+        template <class _Fn>
+        static constexpr _Block_size_t _With_block_iters(
+            _Block_ptr _Blk, _Block_size_t _First, _Block_size_t _Last, _Fn _Func) {
+            // pass wrapped pointers when the block is full to enable further optimizations
+            if (_Blk->_Full()) {
+                return static_cast<_Block_size_t>(
+                    _Func(_Local_ptr{_Blk->_Data + _First}, _Local_ptr{_Blk->_Data + _Last})._Raw - _Blk->_Data);
+            } else {
+                return _Func(_Local_iterator{_Blk, _First}, _Local_iterator{_Blk, _Last})._Index;
+            }
+        }
+
 #if _ITERATOR_DEBUG_LEVEL == 0
         constexpr void _Orphan_block(const _Block&) const noexcept {}
         constexpr void _Orphan_range(const _Block&, _Block_size_t, _Block_size_t) const noexcept {}

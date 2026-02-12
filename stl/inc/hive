@@ -796,6 +796,107 @@ struct _Hive_val_provider {
         _NODISCARD constexpr _Block_ptr _Sent() noexcept {
             return pointer_traits<_Block_ptr>::pointer_to(_Sent_block);
         }
+
+#if _ITERATOR_DEBUG_LEVEL == 0
+        constexpr void _Orphan_block(const _Block&) const noexcept {}
+        constexpr void _Orphan_range(const _Block&, _Block_size_t, _Block_size_t) const noexcept {}
+        constexpr void _Orphan_nonend() const noexcept {}
+        constexpr void _Orphan_end() const noexcept {}
+
+        constexpr void _Adopt_all(const _Hive_val_empty_base*) const noexcept {}
+#else // ^^^ _ITERATOR_DEBUG_LEVEL == 0 / _ITERATOR_DEBUG_LEVEL > 0 vvv
+        constexpr void _Orphan_block(const _Block& _Blk) const noexcept {
+            if consteval {
+                _Orphan_block_unlocked(_Blk);
+            } else {
+                _Orphan_block_locked(_Blk);
+            }
+        }
+        constexpr void _Orphan_range(const _Block& _Blk, _Block_size_t _First, _Block_size_t _Last) const noexcept {
+            if consteval {
+                _Orphan_range_unlocked(_Blk, _First, _Last);
+            } else {
+                _Orphan_range_locked(_Blk, _First, _Last);
+            }
+        }
+        constexpr void _Orphan_nonend() const noexcept {
+            if consteval {
+                _Orphan_nonend_unlocked();
+            } else {
+                _Orphan_nonend_locked();
+            }
+        }
+        constexpr void _Orphan_end() const noexcept {
+            if consteval {
+                _Orphan_end_unlocked();
+            } else {
+                _Orphan_end_locked();
+            }
+        }
+
+        constexpr void _Adopt_all(const _Hive_val_empty_base* _Parent) const noexcept {
+            // Note: No debug lock needed here, as we are working with blocks instead of iterators.
+            const auto _Last = const_cast<_Val*>(this)->_Sent();
+            for (auto _Blk = _Active_begin(); _Blk != _Last; ++_Blk) {
+                _Blk->_Mycont = _Parent;
+            }
+        }
+
+        _NODISCARD constexpr bool _Is_parent_of(const _Local_iterator_idl_common& _Iter) const noexcept {
+            return _Iter._Myblock != nullptr && _Iter._Myblock->_Mycont == this;
+        }
+        _NODISCARD constexpr bool _Is_parent_of(const _Local_iterator& _Iter) const noexcept {
+            return _Iter._Blk->_Mycont == this;
+        }
+
+        constexpr void _Orphan_block_unlocked(const _Block& _Blk) const noexcept {
+            const auto _Last_iter = _STD addressof(_Blk._Sent_iter);
+            for (auto _Iter = _Blk._Sent_iter._Mynextiter; _Iter != _Last_iter; _Iter = _Iter->_Mynextiter) {
+                static_cast<const _Hive_iterator_base12&>(*_Iter)._Myblock = nullptr;
+            }
+            _Blk._Sent_iter._Mynextiter = _Blk._Sent_iter._Mypreviter = _Last_iter;
+        }
+        void _Orphan_block_locked(const _Block& _Blk) const noexcept {
+            _Lockit _Lock(_LOCK_DEBUG);
+            _Orphan_block_unlocked(_Blk);
+        }
+
+        constexpr void _Orphan_range_unlocked(
+            const _Block& _Blk, _Block_size_t _First, _Block_size_t _Last) const noexcept {
+            const auto _Lst = _STD addressof(_Blk._Sent_iter);
+            for (auto _Fst = _Blk._Sent_iter._Mynextiter; _Fst != _Lst;) {
+                const auto _Next      = _Fst->_Mynextiter;
+                const auto& _Fst_iter = static_cast<const _Local_iterator_idl_common&>(*_Fst);
+                if (_First <= _Fst_iter._Index && _Fst_iter._Index < _Last) {
+                    _Fst_iter._Orphan_me_unlocked();
+                }
+                _Fst = _Next;
+            }
+        }
+        void _Orphan_range_locked(const _Block& _Blk, _Block_size_t _First, _Block_size_t _Last) const noexcept {
+            _Lockit _Lock(_LOCK_DEBUG);
+            _Orphan_range_unlocked(_Blk, _First, _Last);
+        }
+
+        constexpr void _Orphan_nonend_unlocked() const noexcept {
+            const auto _Last_blk = const_cast<_Val*>(this)->_Sent();
+            for (auto _Blk = _Active_begin(); _Blk != _Last_blk; ++_Blk) {
+                _Orphan_block_unlocked(*_Blk);
+            }
+        }
+        void _Orphan_nonend_locked() const noexcept {
+            _Lockit _Lock(_LOCK_DEBUG);
+            _Orphan_nonend_unlocked();
+        }
+
+        constexpr void _Orphan_end_unlocked() const noexcept {
+            _Orphan_block_unlocked(_Sent_block);
+        }
+        void _Orphan_end_locked() const noexcept {
+            _Lockit _Lock(_LOCK_DEBUG);
+            _Orphan_end_unlocked();
+        }
+#endif // ^^^ _ITERATOR_DEBUG_LEVEL > 0 ^^^
     };
 };
 

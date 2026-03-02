@@ -1492,11 +1492,43 @@ private:
     // Precisely allocates blocks, calls _Func to construct elements in, activates them, and sets size and capacity.
     // _Tidy *this if an exception is thrown; should only be called in constructors.
     template <class _Fn>
-    constexpr void _Construct_n(size_type _Count, _Fn _Func);
+    constexpr void _Construct_n(size_type _Count, _Fn _Func) {
+        if (_Count == 0) {
+            return;
+        }
+
+        _Tidy_guard _Guard{this};
+
+        _Myval._Size = _Count;
+        _Myval._Capacity =
+            _Alloc_exact_n(_Count, [this, &_Count, _Func = _STD _Pass_fn(_Func)](_Temp_new_block _Blk) mutable {
+                const auto _Cnt =
+                    static_cast<_Block_size_t>((_STD min) (_Count, static_cast<size_type>(_Blk._Capacity())));
+                _STL_INTERNAL_CHECK(_Cnt > 0);
+
+                _Func(_Blk, _Cnt);
+                _Activate_block(_Blk._Init_and_release());
+
+                _Count -= _Cnt;
+            });
+
+        _Guard._Target = nullptr;
+    }
 
 public:
-    explicit hive(size_type _Count, const _Alloc& _Allocator = _Alloc());
-    hive(size_type _Count, hive_limits _Block_limits, const _Alloc& _Allocator = _Alloc());
+    explicit hive(size_type _Count, const _Alloc& _Allocator = _Alloc())
+        : hive(_Count, block_capacity_default_limits(), _Allocator) {}
+    hive(size_type _Count, hive_limits _Block_limits, const _Alloc& _Allocator = _Alloc())
+        : _Al(_Allocator), _Myval(_Block_limits) {
+        _Verify_limits(_Block_limits);
+        _Construct_n(_Count, [](_Temp_new_block& _Blk, _Block_size_t _Cnt) static {
+            _STL_INTERNAL_CHECK(_Cnt > 0);
+            do {
+                _Blk._Emplace();
+                --_Cnt;
+            } while (_Cnt != 0);
+        });
+    }
 
     hive(size_type _Count, const _Ty& _Val, const _Alloc& _Allocator = _Alloc())
         : hive(_Count, _Val, block_capacity_default_limits(), _Allocator) {}

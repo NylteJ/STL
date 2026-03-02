@@ -1373,6 +1373,56 @@ private:
         return _Temp_new_block{*this, _New_block._Release()};
     }
 
+    [[noreturn]] static void _Xlength() {
+        _STD _Xlength_error("hive too long");
+    }
+
+    // Allocates as precisely as possible, returns the actual allocated size.
+    template <class _Fn>
+    constexpr size_type _Alloc_exact_n(size_type _Count, _Fn _Func) {
+        _STL_INTERNAL_CHECK(_Count > 0);
+        const auto _Limits = _Myval._Limits;
+        if constexpr (_Max_limit_may_be_zero) {
+            if (_Limits.max == 0) {
+                _Xlength();
+            }
+        }
+
+        const auto _Block_count     = static_cast<size_type>((_Count + (_Limits.max - 1uz)) / _Limits.max);
+        const auto _Base_elem_cnt   = static_cast<size_type>(_Block_count * _Limits.min);
+        const auto _Actual_elem_cnt = (_STD max) (_Count, _Base_elem_cnt);
+
+        if (_Actual_elem_cnt > max_size() - _Myval._Capacity) {
+            _Xlength();
+        }
+
+        const auto _Extra_elem_cnt = static_cast<size_type>(_Actual_elem_cnt - _Base_elem_cnt);
+        if (_Extra_elem_cnt == 0) {
+            for (size_type _Idx = 0; _Idx != _Block_count; ++_Idx) {
+                _Func(_Alloc_block(_Limits.min));
+            }
+        } else {
+            const auto _Limits_length = _Limits.max - _Limits.min;
+            _STL_INTERNAL_CHECK(_Limits_length != 0);
+            const auto _Max_block_cnt = static_cast<size_type>(_Extra_elem_cnt / _Limits_length);
+            const auto _Rest_elem_cnt = static_cast<size_type>(_Extra_elem_cnt % _Limits_length);
+
+            _STL_INTERNAL_CHECK(_Max_block_cnt <= _Block_count);
+            const auto _Nonmax_blk_cnt = static_cast<size_type>(_Block_count - _Max_block_cnt);
+            if (_Nonmax_blk_cnt > 0) {
+                for (size_type _Idx = 1; _Idx < _Nonmax_blk_cnt; ++_Idx) {
+                    _Func(_Alloc_block(_Limits.min));
+                }
+                _Func(_Alloc_block(static_cast<_Block_size_t>(_Limits.min + _Rest_elem_cnt)));
+            }
+            for (size_type _Idx = 0; _Idx != _Max_block_cnt; ++_Idx) {
+                _Func(_Alloc_block(_Limits.max));
+            }
+        }
+
+        return _Actual_elem_cnt;
+    }
+
     template <_Iterator_for_container _Iter, class _SizedOp, class _UnsizedOp>
     constexpr void _Dispatch_range_op(_Iter& _First, _Iter& _Last, _SizedOp _Sized, _UnsizedOp _Unsized) {
         _STD _Adl_verify_range(_First, _Last);

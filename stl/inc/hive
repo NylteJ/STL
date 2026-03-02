@@ -1090,6 +1090,9 @@ private:
     using _Alty        = _Rebind_alloc_t<_Alloc, _Ty>;
     using _Alty_traits = allocator_traits<_Alty>;
 
+    static constexpr bool _Need_destruction =
+        !conjunction_v<is_trivially_destructible<_Ty>, _Uses_default_destroy<_Alty, _Ty*>>;
+
 public:
     static_assert(!_ENFORCE_MATCHING_ALLOCATORS || is_same_v<_Ty, typename _Alloc::value_type>,
         _MISMATCHED_ALLOCATOR_MESSAGE("hive<T, Allocator>", "T"));
@@ -1369,10 +1372,39 @@ public:
         : hive(from_range, _Ilist, _Block_limits, _Allocator) {}
 
 private:
+    constexpr void _Destroy_elems(_Block_ptr _Blk) noexcept {
+        if constexpr (_Need_destruction) {
+            _Scary_val::_Visit_block_iter_n(_Blk, [this](auto _First, _Block_size_t _Cnt) {
+                _STL_INTERNAL_CHECK(_Cnt > 0);
+                do {
+                    _Alty_traits::destroy(_Al, _STD addressof(*_First));
+                    ++_First;
+                    --_Cnt;
+                } while (_Cnt != 0);
+            });
+        }
+    }
+
+    // does not destroy elements
+    constexpr void _Dealloc_block(_Block_ptr _Blk) const noexcept; // TODO: will be implemented later
+
     // Destroys all elements and deallocates all blocks.
     // Only uses the active blocks list and reserved blocks list.
     // Does not maintain invariants; call only in constructors and destructor.
-    constexpr void _Tidy() noexcept;
+    constexpr void _Tidy() noexcept {
+        _Myval._Orphan_nonend();
+        _Myval._Orphan_end();
+
+        const auto _Sent = _Myval._Sent();
+        for (auto _Blk = _Myval._Active_begin(); _Blk != _Sent;) {
+            _Destroy_elems(_Blk);
+            _Dealloc_block(_Blk++);
+        }
+
+        while (_Myval._Reserved_first != nullptr) {
+            _Dealloc_block(_Myval._Reserved_first++);
+        }
+    }
 
     friend _Tidy_guard<hive>;
 

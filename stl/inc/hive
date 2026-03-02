@@ -1341,6 +1341,38 @@ public:
     }
 
 private:
+    _NODISCARD constexpr _Temp_new_block _Alloc_block(_Block_size_t _Block_cap) {
+        _STL_INTERNAL_CHECK(_Myval._Limits._Contains(_Block_cap));
+        _STL_INTERNAL_CHECK(_Block_cap > 0);
+        _STL_INTERNAL_CHECK(_Block_cap <= max_size() - _Myval._Capacity);
+        _STL_INTERNAL_STATIC_ASSERT(is_implicit_lifetime_v<_Block>);
+        _STL_INTERNAL_STATIC_ASSERT(is_implicit_lifetime_v<_Union>);
+
+        _Alblk _Alb(_Al);
+        _Alloc_construct_ptr _New_block(_Alb);
+        _New_block._Allocate();
+
+        _Alunion _Alu(_Al);
+        _Alloc_construct_n_ptr _New_data(_Alu, _Block_cap);
+        _New_data._Allocate();
+
+        {
+            using _Skip_t     = _Block::_Skipfield_t;
+            using _Alskip     = _Rebind_alloc_t<_Alloc, _Skip_t>;
+            using _Alskp_size = _Alloc_size_t<_Alskip>;
+            _Alskip _Als(_Al);
+            _New_block._Ptr->_Skip =
+                allocator_traits<_Alskip>::allocate(_Als, static_cast<_Alskp_size>(_Block_cap + 1uz),
+                    _New_data._Ptr); // no need to be protected
+            _STL_INTERNAL_STATIC_ASSERT(is_implicit_lifetime_v<_Skip_t>);
+        }
+
+        _New_block._Ptr->_Data     = _New_data._Release();
+        _New_block._Ptr->_Capacity = _Block_cap;
+
+        return _Temp_new_block{*this, _New_block._Release()};
+    }
+
     template <_Iterator_for_container _Iter, class _SizedOp, class _UnsizedOp>
     constexpr void _Dispatch_range_op(_Iter& _First, _Iter& _Last, _SizedOp _Sized, _UnsizedOp _Unsized) {
         _STD _Adl_verify_range(_First, _Last);
@@ -1462,7 +1494,22 @@ private:
     }
 
     // does not destroy elements
-    constexpr void _Dealloc_block(_Block_ptr _Blk) const noexcept; // TODO: will be implemented later
+    constexpr void _Dealloc_block(_Block_ptr _Blk) const noexcept {
+        {
+            using _Alskip = _Rebind_alloc_t<_Alloc, typename _Block::_Skipfield_t>;
+            _Alskip _Als(_Al);
+            allocator_traits<_Alskip>::deallocate(
+                _Als, _Blk->_Skip, static_cast<_Alloc_size_t<_Alskip>>(_Blk->_Capacity + 1u));
+        }
+        {
+            _Alunion _Alu(_Al);
+            _Alunion_traits::deallocate(_Alu, _Blk->_Data, _Blk->_Capacity);
+        }
+        {
+            _Alblk _Alb(_Al);
+            _Alblk_traits::deallocate(_Alb, _Blk, 1);
+        }
+    }
 
     // Destroys all elements and deallocates all blocks.
     // Only uses the active blocks list and reserved blocks list.

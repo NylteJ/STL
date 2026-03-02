@@ -1341,6 +1341,32 @@ public:
     }
 
 private:
+    // Adds the block to the active blocks list, and to the nonfull blocks list if not full.
+    // Numbers the block, and renumbers all blocks if necessary.
+    // Does not modify size or capacity.
+    constexpr void _Activate_block(_Block_ptr _Blk) noexcept {
+        _Block_iter_active{_Myval._Sent()}._Insert_before(_Blk);
+        if (!_Blk->_Full()) {
+            _Block_iter_nonfull{_Myval._Sent()}._Insert_before(_Blk);
+        }
+
+        auto _Ord_id = static_cast<size_type>(_Blk->_Prev->_Order_id + 1); // handles sentinel (wraps to 0)
+        if (_Ord_id == _Sentinel_ord_id) {
+            _Renumber_blocks();
+            _Ord_id = static_cast<size_type>(_Blk->_Prev->_Order_id + 1);
+        }
+        _STL_INTERNAL_CHECK(_Ord_id != _Sentinel_ord_id);
+        _Blk->_Order_id = _Ord_id;
+    }
+
+    constexpr void _Renumber_blocks() noexcept {
+        const auto _Sent = _Myval._Sent();
+        for (auto _Blk = _Myval._Active_begin(); _Blk != _Sent; ++_Blk) {
+            _Blk->_Order_id = static_cast<size_type>(_Blk->_Prev->_Order_id + 1);
+            _STL_INTERNAL_CHECK(_Blk->_Order_id != _Sentinel_ord_id);
+        }
+    }
+
     _NODISCARD constexpr _Temp_new_block _Alloc_block(_Block_size_t _Block_cap) {
         _STL_INTERNAL_CHECK(_Myval._Limits._Contains(_Block_cap));
         _STL_INTERNAL_CHECK(_Block_cap > 0);

@@ -311,6 +311,20 @@ struct _Hive_block_provider {
             _STL_INTERNAL_CHECK(_Skip[_First_free] > 0);
             return {_First_free, _Skip[_First_free]};
         }
+
+        // Init uninitialized block, except order id and IDL=2 data.
+        constexpr void _Init(_Size_t _Element_count) noexcept {
+            _Size = _Element_count;
+            if (!_Full()) {
+                _First_free                = _Size;
+                _Data[_Capacity - 1]._Free = {_Free_npos, _Free_npos};
+                _STD _Uninitialized_value_construct_n_unchecked1(_Skip, _Size);
+                _Skip[_Capacity] = 0;
+                _Skip[_Size] = _Skip[_Capacity - 1] = static_cast<_Size_t>(_Capacity - _Size);
+            } else {
+                _STD _Uninitialized_value_construct_n_unchecked1(_Skip, _Capacity + 1);
+            }
+        }
     };
 };
 
@@ -1146,6 +1160,68 @@ private:
     // note that this may exceed `block_capacity_hard_limits().max` due to N5032 [hive.overview]/5.3
     static constexpr size_t _Hard_limits_max =
         _STD min<size_t>(_STD _Max_limit<_Block_size_t>(), _STD _Max_limit<size_type>());
+
+
+    enum class _Temp_block_type { _New, _Reserved };
+
+    template <_Temp_block_type _Type>
+    class _NODISCARD _Temp_block {
+    public:
+        constexpr _Temp_block(hive& _Hive_, _Block_ptr _Blk_) noexcept
+            : _Hive(_Hive_), _Blk(_Blk_), _Last(_Blk->_Data) {}
+
+        _Temp_block(const _Temp_block&)            = delete;
+        _Temp_block& operator=(const _Temp_block&) = delete;
+
+        constexpr ~_Temp_block() noexcept {
+            if (_Blk != nullptr) {
+                if constexpr (_Need_destruction) {
+                    for (_Local_ptr _Iter = _Blk->_Data; _Iter != _Last; ++_Iter) {
+                        _Alty_traits::destroy(_Hive._Al, _STD to_address(_Iter));
+                    }
+                }
+
+                if constexpr (_Type == _Temp_block_type::_New) {
+                    _Hive._Dealloc_block(_Blk);
+                }
+            }
+        }
+
+        _NODISCARD constexpr _Block_size_t _Capacity() const noexcept {
+            return _Blk->_Capacity;
+        }
+
+        // except order id
+        _NODISCARD constexpr _Block_ptr _Init_and_release() noexcept {
+            _Blk->_Init(static_cast<_Block_size_t>(_Last - _Blk->_Data));
+#if _ITERATOR_DEBUG_LEVEL != 0
+            _Blk->_Sent_iter._Mypreviter = _Blk->_Sent_iter._Mynextiter = _STD addressof(_Blk->_Sent_iter);
+            _Blk->_Mycont                                               = _STD addressof(_Hive._Myval);
+#endif // _ITERATOR_DEBUG_LEVEL != 0
+            return _STD exchange(_Blk, nullptr);
+        }
+
+        _NODISCARD constexpr _Block_ptr _Uninit_release() noexcept {
+            return _STD exchange(_Blk, nullptr);
+        }
+
+        template <class... _Valty>
+        constexpr void _Emplace(_Valty&&... _Val) {
+            _Alty_traits::construct(_Hive._Al, _STD to_address(_Last), _STD forward<_Valty>(_Val)...);
+            ++_Last;
+        }
+
+    private:
+        hive& _Hive;
+        _Block_ptr _Blk;
+        _Local_ptr _Last;
+    };
+
+    // Uninitialized block with contiguous elements. Destroys elements and deallocates the block if an exception is
+    // thrown.
+    using _Temp_new_block = _Temp_block<_Temp_block_type::_New>;
+    // Uninitialized block with contiguous elements. Destroys elements if an exception is thrown.
+    using _Temp_reserved_block = _Temp_block<_Temp_block_type::_Reserved>;
 
 public:
     using iterator                  = _Scary_val::iterator;

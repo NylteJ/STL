@@ -1562,6 +1562,49 @@ private:
         return _Actual_elem_cnt;
     }
 
+    _NODISCARD constexpr _Temp_new_block _Alloc_blk_generously(size_type _Min_cap = 0) {
+        if constexpr (_Max_limit_may_be_zero) {
+            if (_Myval._Limits.max == 0) {
+                _Xlength();
+            }
+        }
+
+        const auto _Max_cap = static_cast<size_type>(max_size() - _Myval._Capacity);
+        if (_Max_cap < _Myval._Limits.min || _Min_cap > _Max_cap) {
+            _Xlength();
+        }
+        return _Alloc_block(_Myval._Limits._Clamp(_STD clamp(_Myval._Capacity, _Min_cap, _Max_cap)));
+    }
+
+    template <class _Fn>
+    constexpr void _Alloc_generous_n(size_type _Count, _Fn _Func) {
+        _STL_INTERNAL_CHECK(_Count > 0);
+        const auto _Limits = _Myval._Limits;
+        if constexpr (_Max_limit_may_be_zero) {
+            if (_Limits.max == 0) {
+                _Xlength();
+            }
+        }
+
+        const auto _Max_block_cnt = static_cast<size_type>(_Count / _Limits.max);
+        const auto _Rest_raw      = static_cast<size_type>(_Count % _Limits.max);
+
+        if (_Max_block_cnt != 0) {
+            const auto _Blk_cnt = _Max_block_cnt + (_Rest_raw != 0);
+
+            if (_Blk_cnt * _Limits.max > max_size() - _Myval._Capacity) {
+                _Alloc_exact_n(_Count, _STD _Pass_fn(_Func));
+                return;
+            }
+
+            for (size_type _Idx = 0; _Idx != _Blk_cnt; ++_Idx) {
+                _Func(_Alloc_block(_Limits.max));
+            }
+        } else {
+            _Func(_Alloc_blk_generously(_Rest_raw));
+        }
+    }
+
     template <_Iterator_for_container _Iter, class _SizedOp, class _UnsizedOp>
     constexpr void _Dispatch_range_op(_Iter& _First, _Iter& _Last, _SizedOp _Sized, _UnsizedOp _Unsized) {
         _STD _Adl_verify_range(_First, _Last);

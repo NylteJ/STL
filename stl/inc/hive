@@ -417,6 +417,119 @@ struct _Hive_block_provider {
             }
         }
 
+        constexpr void _Mark_erased(_Size_t _Pos) noexcept {
+            _STL_INTERNAL_CHECK(_Skip[_Pos] == 0);
+            _STL_INTERNAL_CHECK(_Size > 1);
+
+            const auto _Left_skip    = _Pos != 0 ? _Skip[_Pos - 1] : _Size_t{0};
+            const auto _Right_skip   = _Skip[_Pos + 1];
+            const bool _Left_erased  = _Left_skip != 0;
+            const bool _Right_erased = _Right_skip != 0;
+            const auto _Left_idx     = static_cast<_Size_t>(_Pos - _Left_skip);
+            const auto _Right_idx    = static_cast<_Size_t>(_Pos + _Right_skip);
+            const auto _New_skip     = static_cast<_Size_t>(_Left_skip + 1 + _Right_skip);
+
+            _Skip[_Left_idx] = _Skip[_Right_idx] = _New_skip;
+
+            if (_Left_erased) {
+                if (_Right_erased) {
+                    _Remove_free_node(_Pos - 1u);
+                } else {
+                    const auto _Free_node = _Data[_Pos - 1]._Free;
+
+                    if (_Free_node._Prev != _Free_npos) {
+                        _Data[_Free_node._Prev]._Free._Next = _Pos;
+                    }
+
+                    if (_Free_node._Next != _Free_npos) {
+                        _Data[_Free_node._Next]._Free._Prev = _Pos;
+                    }
+                    _Data[_Pos]._Free = _Free_node;
+                }
+            }
+
+            if (_Right_erased) {
+                if (_First_free == _Pos + 1) {
+                    _First_free = _Left_idx;
+                }
+            }
+
+            if (!_Left_erased && !_Right_erased) {
+                _Data[_Pos]._Free._Prev = _Free_npos;
+                if (!_Full()) {
+                    const auto _Next_node_pos         = static_cast<_Size_t>(_First_free + _Skip[_First_free] - 1);
+                    _Data[_Pos]._Free._Next           = _Next_node_pos;
+                    _Data[_Next_node_pos]._Free._Prev = _Pos;
+                } else {
+                    _Data[_Pos]._Free._Next = _Free_npos;
+                }
+                _First_free = _Left_idx;
+            }
+
+            --_Size;
+        }
+
+        constexpr void _Mark_erased(_Size_t _First, _Size_t _Last, _Size_t _Elem_count) noexcept {
+            _STL_INTERNAL_CHECK(_First < _Last && _Last <= _Capacity);
+            _STL_INTERNAL_CHECK(_Size > _Elem_count);
+            _STL_INTERNAL_CHECK(_Skip[_First] == 0 && _Skip[_Last] == 0);
+
+            const auto _Left_skip   = _First != 0 ? _Skip[_First - 1] : _Size_t{0};
+            const bool _Left_erased = _Left_skip != 0;
+            const auto _Left_idx    = static_cast<_Size_t>(_First - _Left_skip);
+            const auto _Right_idx   = static_cast<_Size_t>(_Last - 1);
+
+            const auto _Dist = static_cast<_Size_t>(_Last - _First);
+
+            bool _All_free_nodes_removed = false;
+            if (_Dist != _Elem_count) { // there are skipblocks in the range, update free list
+                _STL_INTERNAL_CHECK(!_Full());
+                _All_free_nodes_removed = true;
+                for (auto _Tail = static_cast<_Size_t>(_First_free + _Skip[_First_free] - 1);;) {
+                    const auto _Next_tail = _Data[_Tail]._Free._Next;
+
+                    const auto _Head = static_cast<_Size_t>(_Tail - _Skip[_Tail] + 1);
+                    // [_Head, _Tail] is empty
+                    if (_First <= _Head && _Tail < _Last) {
+                        _Remove_free_node(_Tail);
+                    } else {
+                        _All_free_nodes_removed = false;
+                    }
+
+                    if (_Next_tail == _Free_npos) {
+                        break;
+                    }
+                    _Tail = _Next_tail;
+                }
+            }
+
+            if (_Left_erased) {
+                const auto _Left_free = _Data[_First - 1]._Free;
+
+                if (_Left_free._Prev != _Free_npos) {
+                    _Data[_Left_free._Prev]._Free._Next = _Right_idx;
+                }
+
+                if (_Left_free._Next != _Free_npos) {
+                    _Data[_Left_free._Next]._Free._Prev = _Right_idx;
+                }
+                _Data[_Right_idx]._Free = _Left_free;
+            } else {
+                _Data[_Right_idx]._Free._Prev = _Free_npos;
+                if (!_All_free_nodes_removed && !_Full()) {
+                    const auto _Next_node         = static_cast<_Size_t>(_First_free + _Skip[_First_free] - 1);
+                    _Data[_Right_idx]._Free._Next = _Next_node;
+                    _Data[_Next_node]._Free._Prev = _Right_idx;
+                } else {
+                    _Data[_Right_idx]._Free._Next = _Free_npos;
+                }
+                _First_free = _Left_idx;
+            }
+
+            _Skip[_Left_idx] = _Skip[_Right_idx] = static_cast<_Size_t>(_Last - _Left_idx);
+            _Size -= _Elem_count;
+        }
+
     private:
         constexpr void _Remove_free_node(_Size_t _Prev_idx, _Size_t _Next_idx) noexcept {
             if (_Prev_idx != _Free_npos) {

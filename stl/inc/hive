@@ -2100,7 +2100,61 @@ private:
     }
 
     template <class _It, class _Se>
-    constexpr void _Insert_unsized_rng(_It&& _First, _Se&& _Last);
+    constexpr void _Insert_unsized_rng(_It&& _First, _Se&& _Last) {
+        if (_First == _Last) {
+            return;
+        }
+
+        _Myval._Orphan_end();
+
+        if (_Myval._Size != _Myval._Capacity) {
+            const auto _Sent = _Myval._Sent();
+            for (auto _Nonfull = _Myval._Nonfull_begin(); _Nonfull != _Sent;) {
+                _STL_INTERNAL_CHECK(_First != _Last);
+                do {
+                    _Nonfull->_Emplace_one([this, &_First](_Union_ptr _Where) {
+                        _Alty_traits::construct(_Al, _STD addressof(_Where->_Value), *_First);
+                    });
+                    ++_First;
+                    ++_Myval._Size;
+                } while (_First != _Last && !_Nonfull->_Full());
+
+                if (_Nonfull->_Full()) {
+                    (_Nonfull++)._Remove_from_list();
+                } else {
+                    _STL_INTERNAL_CHECK(_First == _Last);
+                }
+
+                if (_First == _Last) {
+                    return;
+                }
+            }
+            _STL_INTERNAL_CHECK(_First != _Last);
+
+            while (_Myval._Reserved_first != nullptr) {
+                _Temp_reserved_block _Tmp_blk{*this, _Myval._Reserved_first};
+
+                const auto _Blk_cap     = _Tmp_blk._Capacity();
+                _Block_size_t _Blk_size = 0;
+                _STL_INTERNAL_CHECK(_Blk_size != _Blk_cap && _First != _Last);
+                do {
+                    _Tmp_blk._Emplace(*_First);
+                    ++_First;
+                    ++_Blk_size;
+                } while (_Blk_size != _Blk_cap && _First != _Last);
+
+                _Myval._Size += _Blk_size;
+                ++_Myval._Reserved_first;
+                _Activate_block(_Tmp_blk._Init_and_release());
+
+                if (_First == _Last) {
+                    return;
+                }
+            }
+        }
+
+        _Insert_unsized_rng_into_new_blocks(_First, _Last);
+    }
 
 public:
     void insert(initializer_list<_Ty> _Ilist) {

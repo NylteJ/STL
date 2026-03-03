@@ -1503,6 +1503,51 @@ public:
                         assert_permutation(cont, expect);
                     },
                     al_1, limits, cnt);
+
+                // range insert
+                {
+                    const auto matrix = [&](auto get_rng) {
+                        if constexpr (!ranges::sized_range<decltype(get_rng())>) { // TODO
+                            if constexpr (ranges::common_range<decltype(get_rng())>) {
+                                hive_matrix(
+                                    [&](hive_t& dst) {
+                                        auto expect = unwrap_to_vec(dst);
+
+                                        auto&& rg = get_rng();
+                                        dst.insert(ranges::begin(rg), ranges::end(rg));
+
+                                        expect.insert_range(expect.end(), unwrap_range(get_rng()));
+                                        assert_permutation(dst, expect);
+                                    },
+                                    al_1, limits, cnt);
+                            }
+
+                            hive_matrix(
+                                [&](hive_t& dst) {
+                                    auto expect = unwrap_to_vec(dst);
+
+                                    auto&& rg = get_rng();
+                                    dst.insert_range(rg);
+
+                                    expect.insert_range(expect.end(), unwrap_range(get_rng()));
+                                    assert_permutation(dst, expect);
+                                },
+                                al_1, limits, cnt);
+                        }
+                    };
+
+                    if constexpr (Cpp17CopyInsertable) {
+                        range_matrix<false>(matrix, al_1, cnt);
+                    }
+                    if constexpr (Cpp17MoveInsertable) {
+                        range_matrix<true>(matrix, al_1, cnt);
+                    }
+
+                    if constexpr (!is_same_v<raw_value_t, T>) {
+                        auto raw_rng = gen_raw_rng(cnt);
+                        matrix([&] -> auto& { return raw_rng; });
+                    }
+                }
             }
         }
     }
@@ -1908,6 +1953,20 @@ void tests<Alloc, Maker, T, EqualPred, LessPred>::test_EH()
 {
     using namespace EH;
 
+    const auto hive_mat_EH = [&](auto func, Alloc& al, const hive_limits& limits, size_ty cnt) {
+        const auto rnd_engine_state = rand_engine;
+        hive_fn_matrix(
+            [&](auto get_hive) {
+                EH::test([&] {
+                    rand_engine     = rnd_engine_state;
+                    const auto cont = get_hive();
+                    do_not_test_above();
+                    func(*cont);
+                });
+            },
+            al, limits, cnt);
+    };
+
     // ctor
     for (const auto& [limits, counts] : limits_counts_mat) {
         for (const auto& cnt : counts) {
@@ -1959,6 +2018,30 @@ void tests<Alloc, Maker, T, EqualPred, LessPred>::test_EH()
                     },
                     al_1, limits, cnt);
             }
+            // range
+            range_matrix<false>(
+                [&](auto get_rng) {
+                    if constexpr (!ranges::sized_range<decltype(get_rng())>) { // TODO
+                        if constexpr (ranges::common_range<decltype(get_rng())>) {
+                            hive_mat_EH(
+                                [&](hive_t& dst) {
+                                    auto&& rg = get_rng();
+                                    do_not_test_above();
+                                    dst.insert(ranges::begin(rg), ranges::end(rg));
+                                },
+                                al_1, limits, cnt);
+                        }
+
+                        hive_mat_EH(
+                            [&](hive_t& dst) {
+                                auto&& rg = get_rng();
+                                do_not_test_above();
+                                dst.insert_range(rg);
+                            },
+                            al_1, limits, cnt);
+                    }
+                },
+                al_1, cnt);
         }
     }
 }

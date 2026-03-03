@@ -2282,8 +2282,11 @@ public:
             _Range, [&](auto&&... _Args) { _Insert_sized_rng(_Args...); },
             [&](auto&&... _Args) { _Insert_unsized_rng(_Args...); },
             [&](size_type _Approx_size, auto&&... _Args) {
-                _Insert_unsized_rng(_Args...); // TODO: will be optimized later
-                (void) _Approx_size;
+                _Alloc_generous_n(_Approx_size, [this](_Temp_new_block&& _Tmp_blk) noexcept {
+                    _Myval._Capacity += _Tmp_blk._Capacity();
+                    _Reserve_block(_Tmp_blk._Uninit_release());
+                });
+                _Insert_unsized_rng(_Args...);
             });
     }
     template <_Iterator_for_container _Iter>

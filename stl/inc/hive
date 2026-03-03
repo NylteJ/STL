@@ -1074,6 +1074,13 @@ public:
         _Verify_limits(_Block_limits);
     }
 
+private:
+    // Precisely allocates blocks, calls _Func to construct elements in, activates them, and sets size and capacity.
+    // _Tidy *this if an exception is thrown; should only be called in constructors.
+    template <class _Fn>
+    constexpr void _Construct_n(size_type _Count, _Fn _Func);
+
+public:
     explicit hive(size_type _Count, const _Alloc& _Allocator = _Alloc());
     hive(size_type _Count, hive_limits _Block_limits, const _Alloc& _Allocator = _Alloc());
 
@@ -1115,6 +1122,13 @@ public:
         _Tidy();
     }
 
+private:
+    // Assigns elements via _Assign_func and constructs elements via _Insert_func.
+    // _Orphan non-end iterators.
+    template <class _InsertFn, class _AssignFn>
+    constexpr void _Assign_n(size_type _Count, _InsertFn _Insert_func, _AssignFn _Assign_func);
+
+public:
     hive& operator=(const hive& _Right);
     hive& operator=(hive&& _Right) noexcept(_Choose_pocma_v<_Alty> != _Pocma_values::_No_propagate_allocators);
     hive& operator=(initializer_list<_Ty> _Ilist);
@@ -1246,6 +1260,14 @@ public:
     iterator insert(const_iterator, const _Ty& _Val);
     iterator insert(const_iterator, _Ty&& _Val);
 
+private:
+    // Grows capacity generously if needed; calls _Func to construct elements in reserved blocks, new blocks, or
+    // non-full old blocks, and increases size.
+    // _Orphan end iterator if any insertion occurs.
+    template <class _Fn>
+    constexpr void _Insert_n(size_type _Count, _Fn _Func);
+
+public:
     void insert(initializer_list<_Ty> _Ilist);
     template <_Container_compatible_range<_Ty> _Rng>
     void insert_range(_Rng&& _Range);

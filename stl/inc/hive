@@ -2629,6 +2629,61 @@ public:
     }
 
 private:
+    // TRANSITION, VSO-2680018: `typename` should be dropped
+    template <class _Ty0, class _Alloc0, class _Uty>
+    friend typename hive<_Ty0, _Alloc0>::size_type erase(hive<_Ty0, _Alloc0>& _Cont, const _Uty& _Val);
+    template <class _Ty0, class _Alloc0, class _Pr>
+    friend typename hive<_Ty0, _Alloc0>::size_type erase_if(hive<_Ty0, _Alloc0>& _Cont, _Pr _Pred);
+
+    template <class _Pr>
+    constexpr size_type _Erase_if(_Pr _Pred) {
+        size_type _Count = 0;
+        // Note: The end iterator is bound to the container and never really invalidated.
+        const auto _Last = _Unchecked_end();
+        for (auto _Iter = _Unchecked_begin(); _Iter != _Last; ++_Iter) {
+            if (_Pred(*_Iter)) {
+                struct _Eraser {
+                    // Per N5032 [hive.erasure]/2, this function's behavior is equivalent to erasing elements
+                    // immediately after each call to _Pred, but here we batch adjacent erasures into a single operation
+                    // for efficiency. Therefore, if _Pred throws, all pending elements should be erased.
+                    hive& _Hive;
+                    _Pr& _Pred;
+                    _Unchecked_iterator& _Iter;
+                    const _Unchecked_iterator& _Last;
+
+                    _Unchecked_iterator _First = _Iter;
+                    size_type _Cnt             = 0;
+
+                    constexpr size_type _Seek() {
+                        do {
+                            ++_Iter;
+                            ++_Cnt;
+                        } while (_Iter != _Last && _Pred(*_Iter));
+                        return _Cnt;
+                    }
+
+                    constexpr ~_Eraser() noexcept {
+                        _STL_INTERNAL_CHECK(_Cnt > 0);
+                        if (_Cnt != 1) {
+                            _Hive._Erase(_First, _Iter);
+                        } else {
+                            _Hive._Erase(_First);
+                        }
+                    }
+                };
+
+                _Count += _Eraser{*this, _Pred, _Iter, _Last}._Seek();
+
+                if (_Iter == _Last) {
+                    break;
+                }
+            }
+        }
+
+        return _Count;
+    }
+
+private:
     _MSVC_NO_UNIQUE_ADDRESS _Alty _Al;
     _Scary_val _Myval;
 };
@@ -2649,10 +2704,13 @@ _EXPORT_STD template <class _Ty, class _Alloc>
 void swap(hive<_Ty, _Alloc>& _Left, hive<_Ty, _Alloc>& _Right) noexcept(noexcept(_Left.swap(_Right)));
 
 _EXPORT_STD template <class _Ty, class _Alloc, class _Uty = _Ty>
-hive<_Ty, _Alloc>::size_type erase(hive<_Ty, _Alloc>& _Cont, const _Uty& _Val);
-
+hive<_Ty, _Alloc>::size_type erase(hive<_Ty, _Alloc>& _Cont, const _Uty& _Val) {
+    return _Cont._Erase_if([&](const auto& _Elem) -> bool { return _Elem == _Val; });
+}
 _EXPORT_STD template <class _Ty, class _Alloc, class _Pr>
-hive<_Ty, _Alloc>::size_type erase_if(hive<_Ty, _Alloc>& _Cont, _Pr _Pred);
+hive<_Ty, _Alloc>::size_type erase_if(hive<_Ty, _Alloc>& _Cont, _Pr _Pred) {
+    return _Cont._Erase_if(_STD _Pass_fn(_Pred));
+}
 
 namespace pmr {
     _EXPORT_STD template <class _Ty>

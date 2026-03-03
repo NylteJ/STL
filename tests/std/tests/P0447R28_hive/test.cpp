@@ -1711,6 +1711,49 @@ public:
                 assert_equal(cont, vals);
             },
             al_1, limits_counts_mat);
+
+        hive_matrix(
+            [&](hive_t& cont) {
+                counted_pred pred{equal_pred};
+                if (cont.empty()) {
+                    const auto ret = erase(cont, erase_proxy{ref(pred), raw_value_t{}});
+                    assert(pred.cnt == 0);
+                    assert(cont.empty());
+                    assert(ret == 0);
+                    return;
+                }
+
+                const auto size_before = cont.size();
+                auto expect            = unwrap_to_vec(cont);
+                const auto ret         = erase(cont, erase_proxy{ref(pred), expect[0]});
+                assert(pred.cnt == size_before);
+                assert(ret == size_before - cont.size());
+
+                erase(expect, raw_value_t{expect[0]}); // must copy because `erase` takes its argument by reference
+                assert_equal(cont, expect);
+            },
+            al_1, limits_counts_mat);
+
+        hive_matrix(
+            [&](hive_t& cont) {
+                if (cont.empty()) {
+                    const auto ret = erase_if(cont, [](const T&) -> bool { abort(); });
+                    assert(cont.empty());
+                    assert(ret == 0);
+                    return;
+                }
+
+                const auto size_before = cont.size();
+                auto expect            = unwrap_to_vec(cont);
+                counted_pred pred_cont{[&](const T& v) { return less_pred(v, T{expect[0]}); }};
+                const auto ret = erase_if(cont, ref(pred_cont));
+                assert(pred_cont.cnt == size_before);
+                assert(ret == size_before - cont.size());
+
+                erase_if(expect, [val = expect[0]](const raw_value_t& v) { return v < val; });
+                assert_equal(cont, expect);
+            },
+            al_1, limits_counts_mat);
     }
 
 private:
@@ -2264,6 +2307,24 @@ void tests<Alloc, Maker, T, EqualPred, LessPred>::test_EH()
 
     for (const auto& [limits, counts] : limits_counts_mat) {
         for (const auto& cnt : counts) {
+            // erase_if
+            hive_mat_EH_pr([&](hive_t& cont, auto pr) { erase_if(cont, pr); }, al_1, limits, cnt, true_pred);
+            hive_mat_EH_pr([&](hive_t& cont, auto pr) { erase_if(cont, pr); }, al_1, limits, cnt, false_pred);
+
+            hive_mat_EH_pr(
+                [&](hive_t& cont, auto pr) {
+                    const auto vals = unwrap_to_vec(cont);
+                    counted_pred counted_pr{pr};
+                    try {
+                        erase_if(cont, ref(counted_pr));
+                    } catch (...) {
+                        // N5032 [hive.erasure]/2
+                        assert_equal(cont, vals | views::drop(static_cast<ptrdiff_t>(counted_pr.cnt - 1)));
+                        throw;
+                    }
+                },
+                al_1, limits, cnt, true_pred);
+
             // unique
             hive_mat_EH_pr([&](hive_t& cont, auto pr) { cont.unique(pr); }, al_1, limits, cnt, true_pred);
             hive_mat_EH_pr([&](hive_t& cont, auto pr) { cont.unique(pr); }, al_1, limits, cnt, false_pred);

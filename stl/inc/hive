@@ -1195,8 +1195,13 @@ public:
     explicit hive(size_type _Count, const _Alloc& _Allocator = _Alloc());
     hive(size_type _Count, hive_limits _Block_limits, const _Alloc& _Allocator = _Alloc());
 
-    hive(size_type _Count, const _Ty& _Val, const _Alloc& _Allocator = _Alloc());
-    hive(size_type _Count, const _Ty& _Val, hive_limits _Block_limits, const _Alloc& _Allocator = _Alloc());
+    hive(size_type _Count, const _Ty& _Val, const _Alloc& _Allocator = _Alloc())
+        : hive(_Count, _Val, block_capacity_default_limits(), _Allocator) {}
+    hive(size_type _Count, const _Ty& _Val, hive_limits _Block_limits, const _Alloc& _Allocator = _Alloc())
+        : _Al(_Allocator), _Myval(_Block_limits) {
+        _Verify_limits(_Block_limits);
+        _Construct_n(_Count, _Lambdas::template _Fill_blk<_Lambdas::_Uninit>(_Val));
+    }
 
 private:
     template <class _It>
@@ -1307,7 +1312,10 @@ public:
             });
     }
 
-    void assign(size_type _Count, const _Ty& _Val);
+    void assign(size_type _Count, const _Ty& _Val) {
+        _Assign_n(_Count, _Lambdas::template _Fill_blk<_Lambdas::_Uninit>(_Val),
+            _Lambdas::template _Fill_blk<_Lambdas::_Init>(_Val));
+    }
 
     void assign(initializer_list<_Ty> _Ilist) {
         assign_range(_Ilist);
@@ -1471,7 +1479,9 @@ public:
             [&](auto&&... _Args) { _Insert_unsized_rng(_Args...); });
     }
 
-    void insert(size_type _Count, const _Ty& _Val);
+    void insert(size_type _Count, const _Ty& _Val) {
+        _Insert_n(_Count, _Lambdas::template _Fill_blk<_Lambdas::_Uninit>(_Val));
+    }
 
     iterator erase(const_iterator _Where);
     iterator erase(const_iterator _First, const_iterator _Last);

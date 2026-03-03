@@ -2561,7 +2561,51 @@ public:
     void splice(hive&& _Right);
 
     template <class _Pr2 = equal_to<_Ty>>
-    size_type unique(_Pr2 _Pred = _Pr2());
+    size_type unique(_Pr2 _Pred = _Pr2()) noexcept(
+        noexcept(static_cast<bool>(_Pred(_STD declval<const _Ty&>(), _STD declval<const _Ty&>())))) /* strengthened */ {
+        static_assert(
+            requires(const _Ty& _Val) {
+                { _Pred(_Val, _Val) } -> _Boolean_testable;
+            }, "binary_pred must meet the requirements of BinaryPredicate (N5032 [hive.operations]/1).");
+
+        size_type _Count = 0;
+
+        if (_Myval._Size >= 2) {
+            // Note: The end iterator is bound to the container and never really invalidated.
+            const auto _Last = _Unchecked_end();
+            auto _Iter       = _Unchecked_begin();
+            auto _Prev       = _Iter;
+            ++_Iter;
+
+            _STL_INTERNAL_CHECK(_Iter != _Last);
+            do {
+                if (_Pred(*_Iter, *_Prev)) {
+                    const auto _First_duplicate = _Iter;
+
+                    size_type _Cnt = 0;
+                    do {
+                        ++_Iter;
+                        ++_Cnt;
+                    } while (_Iter != _Last && _Pred(*_Iter, *_Prev));
+
+                    _Count += _Cnt;
+                    if (_Cnt != 1) {
+                        _Erase(_First_duplicate, _Iter);
+                    } else {
+                        _Erase(_First_duplicate);
+                    }
+
+                    if (_Iter == _Last) {
+                        break;
+                    }
+                }
+                _Prev = _Iter;
+                ++_Iter;
+            } while (_Iter != _Last);
+        }
+
+        return _Count;
+    }
 
     template <class _Pr2 = less<_Ty>>
     void sort(_Pr2 _Pred = _Pr2());

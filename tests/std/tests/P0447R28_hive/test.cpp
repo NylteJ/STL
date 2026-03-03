@@ -1746,6 +1746,26 @@ private:
     };
 
 public:
+    void test_unique() {
+        hive_matrix(
+            [&](hive_t& cont) {
+                cont.insert_range(views::repeat(gen_raw_value(), 3));
+                cont.insert_range(views::repeat(gen_raw_value(), 4));
+                cont.insert_range(views::repeat(gen_raw_value(), 2));
+                const auto size_before = cont.size();
+                auto expect            = unwrap_to_vec(cont);
+                expect.erase(ranges::unique(expect).begin(), expect.end());
+                const auto expected_ret = cont.size() - expect.size();
+
+                counted_pred pred{equal_pred};
+                const auto ret = cont.unique(ref(pred));
+                assert(pred.cnt == size_before - 1uz);
+                assert(ret == expected_ret);
+                assert_equal(cont, expect);
+            },
+            al_1, limits_counts_mat);
+    }
+
     // also including three-way comparison
     void test_iteration() {
         hive_matrix(
@@ -1826,6 +1846,7 @@ public:
         test_reserve();
         test_insert();
         test_erase();
+        test_unique();
         test_iteration();
 
         DO_IF_VALID(test_EH());
@@ -2221,6 +2242,31 @@ void tests<Alloc, Maker, T, EqualPred, LessPred>::test_EH()
                         al_1, limits, cnt);
                 },
                 al_1, cnt);
+        }
+    }
+
+    const auto hive_mat_EH_pr = [&](auto func, Alloc& al, const hive_limits& limits, size_ty cnt, auto pred) {
+        const auto rnd_engine_state = rand_engine;
+        hive_fn_matrix(
+            [&](auto get_hive) {
+                EH::test_pred(
+                    [&](auto pr) {
+                        rand_engine = rnd_engine_state;
+                        func(*get_hive(), pr);
+                    },
+                    pred);
+            },
+            al, limits, cnt);
+    };
+
+    constexpr auto true_pred  = [](auto&&...) { return bool_constant<true>{}; };
+    constexpr auto false_pred = [](auto&&...) { return bool_constant<false>{}; };
+
+    for (const auto& [limits, counts] : limits_counts_mat) {
+        for (const auto& cnt : counts) {
+            // unique
+            hive_mat_EH_pr([&](hive_t& cont, auto pr) { cont.unique(pr); }, al_1, limits, cnt, true_pred);
+            hive_mat_EH_pr([&](hive_t& cont, auto pr) { cont.unique(pr); }, al_1, limits, cnt, false_pred);
         }
     }
 }

@@ -325,6 +325,119 @@ struct _Hive_block_provider {
                 _STD _Uninitialized_value_construct_n_unchecked1(_Skip, _Capacity + 1);
             }
         }
+
+        struct _Emplace_guard {
+            _Union_ptr _Pos;
+            typename _Union::_Free_list_node _Node;
+            constexpr explicit _Emplace_guard(_Union_ptr _Pos_) : _Pos(_Pos_), _Node(_Pos->_Free) {}
+            constexpr ~_Emplace_guard() noexcept {
+                if (_Pos != nullptr) {
+                    _Pos->_Free = _Node;
+                }
+            }
+        };
+
+        // Does not modify the nonfull blocks list. Returns the index of the new element.
+        // provides strong guarantee
+        template <class _Fn>
+        constexpr _Size_t _Emplace_one(_Fn _Func) {
+            _STL_INTERNAL_CHECK(!_Full());
+
+            const auto [_Free_pos, _Free_len] = _First_free_range();
+            _STL_INTERNAL_CHECK(_Free_len > 0);
+            if (_Free_len != 1) { // skipblock not exhausted, just shrink it
+                _Func(_Data + _Free_pos);
+                _Skip[_Free_pos]     = 0;
+                _Skip[_Free_pos + 1] = _Skip[_Free_pos + _Free_len - 1] = static_cast<_Size_t>(_Free_len - 1);
+                ++_First_free;
+            } else { // skipblock exhausted, update free list
+                _STL_INTERNAL_CHECK(_Data[_Free_pos]._Free._Prev == _Free_npos);
+                const auto _Next_free = _Data[_Free_pos]._Free._Next;
+
+                _Emplace_guard _Guard{_Data + _Free_pos};
+                _Func(_Data + _Free_pos);
+                _Guard._Pos = nullptr;
+
+                if (_Next_free != _Free_npos) {
+                    _Data[_Next_free]._Free._Prev = _Free_npos;
+                    _First_free                   = static_cast<_Size_t>(_Next_free + 1 - _Skip[_Next_free]);
+                }
+                _Skip[_Free_pos] = 0;
+            }
+            ++_Size;
+
+            return _Free_pos;
+        }
+
+        // n > 0
+        template <class _Fn>
+        constexpr void _Emplace_n(_Size_t _Count, _Fn _Func) {
+            _STL_INTERNAL_CHECK(_Size + _Count <= _Capacity);
+
+            _STL_INTERNAL_CHECK(_Count > 0);
+            do {
+                const auto [_Free_pos, _Free_len] = _First_free_range();
+                const auto _Cnt                   = (_STD min) (_Count, _Free_len);
+                _Emplace_n_at(_Free_pos, _Cnt, _STD _Pass_fn(_Func));
+                _Count -= _Cnt;
+            } while (_Count != 0);
+        }
+
+        // n > 0
+        template <class _Fn>
+        constexpr void _Emplace_n_at(_Size_t _Pos, _Size_t _Count, _Fn _Func) {
+            _STL_INTERNAL_CHECK(_Pos < _Capacity);
+            _STL_INTERNAL_CHECK(_Count > 0);
+
+            const auto _Length = _Skip[_Pos];
+            _STL_INTERNAL_CHECK(_Length >= _Count);
+            _STL_INTERNAL_CHECK(_Length == _Skip[_Pos + _Length - 1]);
+            if (_Count != _Length) { // skipblock not exhausted, just shrink it
+                _Func(_Data + _Pos, _Count);
+
+                _RANGES fill_n(_STD to_address(_Skip + _Pos), _Count, _Size_t{0});
+                _Size += _Count;
+
+                _Skip[_Pos + _Count] = _Skip[_Pos + _Length - 1] = static_cast<_Size_t>(_Length - _Count);
+                if (_Pos == _First_free) {
+                    _First_free = static_cast<_Size_t>(_Pos + _Count);
+                }
+            } else { // skipblock exhausted, update free list
+                const auto _Node_pos  = _Pos + _Length - 1;
+                const auto _Node_data = _Data[_Node_pos]._Free;
+
+                _Emplace_guard _Guard{_Data + _Node_pos};
+                _Func(_Data + _Pos, _Count);
+                _Guard._Pos = nullptr;
+
+                _RANGES fill_n(_STD to_address(_Skip + _Pos), _Count, _Size_t{0});
+                _Size += _Count;
+
+                _Remove_free_node(_Node_data._Prev, _Node_data._Next);
+            }
+        }
+
+    private:
+        constexpr void _Remove_free_node(_Size_t _Prev_idx, _Size_t _Next_idx) noexcept {
+            if (_Prev_idx != _Free_npos) {
+                if (_Next_idx != _Free_npos) {
+                    _Data[_Prev_idx]._Free._Next = _Next_idx;
+                    _Data[_Next_idx]._Free._Prev = _Prev_idx;
+                } else {
+                    _Data[_Prev_idx]._Free._Next = _Free_npos;
+                }
+            } else {
+                if (_Next_idx != _Free_npos) {
+                    _Data[_Next_idx]._Free._Prev = _Free_npos;
+                    _First_free                  = static_cast<_Size_t>(_Next_idx + 1 - _Skip[_Next_idx]);
+                }
+            }
+        }
+        constexpr void _Remove_free_node(_Size_t _Idx) noexcept {
+            const auto _Prev_idx = _Data[_Idx]._Free._Prev;
+            const auto _Next_idx = _Data[_Idx]._Free._Next;
+            _Remove_free_node(_Prev_idx, _Next_idx);
+        }
     };
 };
 

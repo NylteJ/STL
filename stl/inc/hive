@@ -2413,8 +2413,144 @@ public:
         _Insert_n(_Count, _Lambdas::template _Fill_blk<_Lambdas::_Uninit>(_Val));
     }
 
-    iterator erase(const_iterator _Where);
-    iterator erase(const_iterator _First, const_iterator _Last);
+private:
+    _NODISCARD constexpr bool _Should_reserve(_Block_ptr _Blk) const noexcept {
+        if (_Myval._Reserved_first == nullptr) {
+            return true;
+        }
+        const bool _Block_big_enough = _Blk->_Capacity >= _Myval._Reserved_first->_Capacity;
+        const bool _Need_more_space  = _Myval._Capacity - _Myval._Size <= _Myval._Limits.max * 2;
+        return _Block_big_enough && _Need_more_space;
+    }
+
+    // reduces capacity if dealloc
+    constexpr void _Reserve_or_dealloc_empty(_Block_ptr _Blk) noexcept {
+        if (_Should_reserve(_Blk)) {
+            _Reserve_block(_Blk);
+        } else {
+            _Myval._Capacity -= _Blk->_Capacity;
+            _Dealloc_block(_Blk);
+        }
+    }
+
+    constexpr void _Erase(_Unchecked_const_iterator _UWhere) noexcept {
+#if _ITERATOR_DEBUG_LEVEL != 0
+        _Myval._Orphan_range(*_UWhere._Blk, _UWhere._Index, _STD _Next_iter(_Local_iterator{_UWhere})._Index);
+        if (_STD _Next_iter(_UWhere) == _Unchecked_end()) {
+            _Myval._Orphan_end();
+        }
+#endif // _ITERATOR_DEBUG_LEVEL != 0
+
+        if constexpr (_Need_destruction) {
+            _Alty_traits::destroy(_Al, _STD addressof(const_cast<_Ty&>(*_UWhere)));
+        }
+
+        const auto _Blk = _UWhere._Blk;
+        _STL_INTERNAL_CHECK(_Blk->_Size >= 1);
+        if (_Blk->_Size == 1) {
+            _Block_iter_active{_Blk}._Remove_from_list();
+            if (!_Blk->_Full()) {
+                _Block_iter_nonfull{_Blk}._Remove_from_list();
+            }
+            _Reserve_or_dealloc_empty(_Blk);
+        } else {
+            if (_Blk->_Full()) {
+                _Block_iter_nonfull{_Myval._Sent()}._Insert_after(_Blk);
+            }
+            _Blk->_Mark_erased(_UWhere._Index);
+        }
+
+        --_Myval._Size;
+    }
+
+    constexpr void _Erase(_Unchecked_const_iterator _UFirst, _Unchecked_const_iterator _ULast) noexcept {
+#if _ITERATOR_DEBUG_LEVEL != 0
+        if (_UFirst != _ULast && _ULast == _Unchecked_end()) {
+            _Myval._Orphan_end();
+        }
+#endif // _ITERATOR_DEBUG_LEVEL != 0
+
+        const auto _Erase_partial_block = [this](_Block_ptr _Blk, _Block_size_t _First, _Block_size_t _Last) {
+            _STL_INTERNAL_CHECK(_First < _Last);
+            _Myval._Orphan_range(*_Blk, _First, _Last);
+
+            _Block_size_t _Elem_count;
+            _Scary_val::_With_block_iters(_Blk, _First, _Last, [&](auto _Fst, const auto& _Lst) {
+                _Elem_count = static_cast<_Block_size_t>(_RANGES distance(_Fst, _Lst));
+
+                if constexpr (_Need_destruction) {
+                    do {
+                        _Alty_traits::destroy(_Al, _STD addressof(*_Fst));
+                        ++_Fst;
+                    } while (_Fst != _Lst);
+                }
+                return _Lst;
+            });
+
+            if (_Blk->_Full()) {
+                _Block_iter_nonfull{_Myval._Sent()}._Insert_after(_Blk);
+            }
+
+            _Blk->_Mark_erased(_First, _Last, _Elem_count);
+            _Myval._Size -= _Elem_count;
+        };
+
+        if (_UFirst._Blk != _ULast._Blk) {
+            if (_UFirst._Index != _UFirst._Blk->_First_element()) {
+                _Erase_partial_block(_UFirst._Blk, _UFirst._Index, _UFirst._Blk->_Capacity);
+                ++_UFirst._Blk;
+            }
+
+            if (_UFirst._Blk != _ULast._Blk) {
+                const auto _Prev_block = _UFirst._Blk->_Prev;
+
+                do {
+                    const auto _Blk = _UFirst._Blk++;
+                    _Myval._Orphan_block(*_Blk);
+                    if (!_Blk->_Full()) {
+                        _Block_iter_nonfull{_Blk}._Remove_from_list();
+                    }
+                    _Myval._Size -= _Blk->_Size;
+                    _Destroy_elems(_Blk);
+                    _Reserve_or_dealloc_empty(_Blk);
+                } while (_UFirst._Blk != _ULast._Blk);
+
+                _ULast._Blk->_Prev = _Prev_block;
+                _Prev_block->_Next = _ULast._Blk;
+            }
+
+            _UFirst._Index = _UFirst._Blk->_First_element();
+        }
+
+        _STL_INTERNAL_CHECK(_UFirst._Blk == _ULast._Blk);
+
+        if (_UFirst._Index != _ULast._Index) {
+            _Erase_partial_block(_UFirst._Blk, _UFirst._Index, _ULast._Index);
+        }
+    }
+
+public:
+    iterator erase(const_iterator _Where) noexcept /* strengthened */ {
+#if _ITERATOR_DEBUG_LEVEL != 0
+        _STL_VERIFY(_Myval._Is_parent_of(_Where) && !_Where._Is_end(), "hive erase iterator outside range");
+#endif // _ITERATOR_DEBUG_LEVEL != 0
+
+        const auto _UWhere = _Where._Unwrapped();
+        const auto _URet   = _STD _Next_iter(_UWhere);
+        _Erase(_UWhere);
+
+        return iterator{_URet._Blk, _URet._Index};
+    }
+
+    iterator erase(const_iterator _First, const_iterator _Last) noexcept /* strengthened */ {
+#if _ITERATOR_DEBUG_LEVEL != 0
+        _STL_VERIFY(_Myval._Is_parent_of(_First), "hive erase iterator outside range");
+        _STD _Adl_verify_range(_First, _Last);
+#endif // _ITERATOR_DEBUG_LEVEL != 0
+        _Erase(_First._Unwrapped(), _Last._Unwrapped());
+        // Note: The end iterator is bound to the container and never really invalidated.
+        return _Last._Mutable(); // _Mutable ignores the invalidity
+    }
 
     void swap(hive&) noexcept(_Alty_traits::propagate_on_container_swap::value || _Alty_traits::is_always_equal::value);
 

@@ -1457,6 +1457,18 @@ private:
             });
         }
         func([&] {
+            // hive with erased elements
+            auto cont             = make_unique<hive_t>(from_range, gen_raw_rng(cnt_hint * 2), limits, al);
+            vector<citer_t> iters = get_hive_nonend_iters(*cont);
+            ranges::shuffle(iters, rand_engine);
+            iters.resize(cnt_hint);
+            for (const auto& iter : iters) {
+                cont->erase(iter);
+            }
+            assert(cont->size() == cnt_hint);
+            return cont;
+        });
+        func([&] {
             // hive with reserved blocks
             auto cont      = make_unique<hive_t>(from_range, gen_raw_rng(cnt_hint), limits, al);
             const auto cap = cont->capacity();
@@ -1465,8 +1477,6 @@ private:
             assert(cont->capacity() >= cap + siz);
             return cont;
         });
-
-        // TODO: We'll add more later...
     }
     template <class Fn>
     void hive_matrix(Fn func, Alloc& al, hive_limits limits, size_ty cnt_hint) {
@@ -1634,6 +1644,75 @@ public:
         }
     }
 
+    void test_erase() {
+        hive_matrix(
+            [&](hive_t& cont) {
+                auto remaining = cont.size();
+                while (!cont.empty()) {
+                    cont.erase(cont.begin());
+                    --remaining;
+                }
+                assert(remaining == 0);
+            },
+            al_1, limits_counts_mat);
+
+        hive_matrix(
+            [&](hive_t& cont) {
+                const size_t init_size = cont.size();
+
+                using hive_iter = iter_t;
+                using list_iter = list<raw_value_t>::iterator;
+                using iter_pair = pair<hive_iter, list_iter>;
+                auto vals       = unwrap_range(cont) | ranges::to<list>();
+                vector<iter_pair> iters(init_size);
+                {
+                    auto hive_it = cont.begin();
+                    auto list_it = vals.begin();
+                    for (size_t i = 0; i != cont.size(); ++i) {
+                        iters[i] = {hive_it, list_it};
+                        ++hive_it, ++list_it;
+                    }
+                }
+
+                ranges::shuffle(iters, rand_engine);
+
+                size_t index = 0;
+                for (; index != init_size / 3; ++index) {
+                    cont.erase(iters[index].first);
+                    vals.erase(iters[index].second);
+                }
+                assert_equal(cont, vals);
+                for (; index != init_size * 3 / 4; ++index) {
+                    cont.erase(iters[index].first);
+                    vals.erase(iters[index].second);
+                }
+                assert_equal(cont, vals);
+            },
+            al_1, limits_counts_mat);
+
+        hive_matrix(
+            [&](hive_t& cont) {
+                if (cont.empty()) {
+                    cont.erase(cont.end(), cont.end());
+                    assert(cont.empty());
+                    return;
+                }
+
+                auto vals = unwrap_to_vec(cont);
+
+                array<ptrdiff_t, 2> offsets;
+                ranges::sample(views::iota(0, ssize(cont) + 1), offsets.data(), 2, rand_engine);
+                assert(offsets[0] < offsets[1]); // sample is stable here
+
+                cont.erase(next(cont.begin(), static_cast<diff_t>(offsets[0])),
+                    next(cont.begin(), static_cast<diff_t>(offsets[1])));
+
+                vals.erase(vals.begin() + offsets[0], vals.begin() + offsets[1]);
+                assert_equal(cont, vals);
+            },
+            al_1, limits_counts_mat);
+    }
+
 private:
     struct strong_guarantee_state {
         vector<raw_value_t> unwrapped_values;
@@ -1746,6 +1825,7 @@ public:
         test_ctors();
         test_reserve();
         test_insert();
+        test_erase();
         test_iteration();
 
         DO_IF_VALID(test_EH());

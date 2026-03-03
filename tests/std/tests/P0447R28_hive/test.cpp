@@ -1396,28 +1396,26 @@ public:
                 // range ctor
                 {
                     const auto matrix = [&](auto get_rng) {
-                        if constexpr (ranges::sized_range<decltype(get_rng())>) { // TODO
-                            if constexpr (ranges::common_range<decltype(get_rng())>) {
-                                ctor_matrix(
-                                    [&](const Alloc& expected_al, hive_limits expected_limits, auto&&... args) {
-                                        auto&& rg = get_rng();
-                                        hive_t cont(ranges::begin(rg), ranges::end(rg), args...);
-                                        assert(cont.get_allocator() == expected_al);
-                                        assert_limits(cont, expected_limits);
-                                        assert_equal(cont, get_rng());
-                                    },
-                                    al_1, limits);
-                            }
-
+                        if constexpr (ranges::common_range<decltype(get_rng())>) {
                             ctor_matrix(
                                 [&](const Alloc& expected_al, hive_limits expected_limits, auto&&... args) {
-                                    hive_t cont(from_range, get_rng(), args...);
+                                    auto&& rg = get_rng();
+                                    hive_t cont(ranges::begin(rg), ranges::end(rg), args...);
                                     assert(cont.get_allocator() == expected_al);
                                     assert_limits(cont, expected_limits);
                                     assert_equal(cont, get_rng());
                                 },
                                 al_1, limits);
                         }
+
+                        ctor_matrix(
+                            [&](const Alloc& expected_al, hive_limits expected_limits, auto&&... args) {
+                                hive_t cont(from_range, get_rng(), args...);
+                                assert(cont.get_allocator() == expected_al);
+                                assert_limits(cont, expected_limits);
+                                assert_equal(cont, get_rng());
+                            },
+                            al_1, limits);
                     };
 
                     if constexpr (Cpp17CopyInsertable) {
@@ -1923,21 +1921,19 @@ void tests<Alloc, Maker, T, EqualPred, LessPred>::test_EH()
             // range
             range_matrix<false>(
                 [&](auto get_rng) {
-                    if constexpr (ranges::sized_range<decltype(get_rng())>) { // TODO
-                        if constexpr (ranges::common_range<decltype(get_rng())>) {
-                            EH::test([&] {
-                                auto&& rg = get_rng();
-                                do_not_test_above();
-                                hive_t cont(ranges::begin(rg), ranges::end(rg), limits, al_1);
-                            });
-                        }
-
+                    if constexpr (ranges::common_range<decltype(get_rng())>) {
                         EH::test([&] {
                             auto&& rg = get_rng();
                             do_not_test_above();
-                            hive_t cont(from_range, rg, limits, al_1);
+                            hive_t cont(ranges::begin(rg), ranges::end(rg), limits, al_1);
                         });
                     }
+
+                    EH::test([&] {
+                        auto&& rg = get_rng();
+                        do_not_test_above();
+                        hive_t cont(from_range, rg, limits, al_1);
+                    });
                 },
                 al_1, cnt);
         }

@@ -1695,13 +1695,38 @@ public:
     }
 
 private:
+    template <class _It, class _Se>
+    constexpr void _Insert_unsized_rng_into_new_blocks(_It&& _First, _Se&& _Last) {
+        while (_First != _Last) {
+            _Temp_new_block _Tmp_blk = _Alloc_blk_generously();
+
+            const auto _Blk_cap     = _Tmp_blk._Capacity();
+            _Block_size_t _Blk_size = 0;
+            _STL_INTERNAL_CHECK(_Blk_size != _Blk_cap && _First != _Last);
+            do {
+                _Tmp_blk._Emplace(*_First);
+                ++_First;
+                ++_Blk_size;
+            } while (_Blk_size != _Blk_cap && _First != _Last);
+
+            const auto _New_blk = _Tmp_blk._Init_and_release();
+            _Myval._Size += _Blk_size;
+            _Myval._Capacity += _Blk_cap;
+            _Activate_block(_New_blk);
+        }
+    }
+
     template <class _It>
     constexpr void _Construct_sized_rng(size_type _Size, _It&& _First) {
         _Construct_n(_Size, _Lambdas::template _Copy_move_to_blk<_Lambdas::_Copy | _Lambdas::_Uninit>(_First));
     }
 
     template <class _It, class _Se>
-    constexpr void _Construct_unsized_rng(_It&& _First, _Se&& _Last);
+    constexpr void _Construct_unsized_rng(_It&& _First, _Se&& _Last) {
+        _Tidy_guard _Guard{this};
+        _Insert_unsized_rng_into_new_blocks(_First, _Last);
+        _Guard._Target = nullptr;
+    }
 
 public:
     template <_Iterator_for_container _Iter>

@@ -1075,6 +1075,46 @@ public:
     }
 
 private:
+    template <_Iterator_for_container _Iter, class _SizedOp, class _UnsizedOp>
+    constexpr void _Dispatch_range_op(_Iter& _First, _Iter& _Last, _SizedOp _Sized, _UnsizedOp _Unsized) {
+        _STD _Adl_verify_range(_First, _Last);
+        auto&& _UFirst = _STD _Get_unwrapped(_STD move(_First));
+        auto&& _ULast  = _STD _Get_unwrapped(_STD move(_Last));
+
+        using _UIter = remove_cvref_t<decltype(_UFirst)>;
+
+        if constexpr (sized_sentinel_for<_UIter, _UIter>) {
+            const auto _Dist = _ULast - _UFirst;
+#if _ITERATOR_DEBUG_LEVEL != 0
+            _STL_VERIFY(_Dist >= 0, "input range transposed");
+#endif // _ITERATOR_DEBUG_LEVEL != 0
+            const auto _Size = _STD _Convert_size<size_type>(_STD _To_unsigned_like(_Dist));
+            _Sized(_Size, _UFirst);
+        } else {
+            _Unsized(_UFirst, _ULast);
+        }
+    }
+
+    template <_Container_compatible_range<_Ty> _Rng, class _SizedOp, class _UnsizedOp, class _ApproxedOp>
+    constexpr void _Dispatch_range_op(_Rng& _Range, _SizedOp _Sized, _UnsizedOp _Unsized, _ApproxedOp _Approxed) {
+        if constexpr (_RANGES sized_range<_Rng>) {
+            const auto _Size = _STD _Convert_size<size_type>(_RANGES size(_Range));
+            _Sized(_Size, _RANGES _Ubegin(_Range));
+        } else {
+#ifdef __cpp_lib_ranges_reserve_hint // TRANSITION, GH-5299
+            if constexpr (_RANGES approximately_sized_range<_Rng>) {
+                const auto _Approx_size = _STD _Convert_size<size_type>(_RANGES reserve_hint(_Range));
+                _Approxed(_Approx_size, _RANGES _Ubegin(_Range), _RANGES _Uend(_Range));
+            } else
+#else // ^^^ defined(__cpp_lib_ranges_reserve_hint) / !defined(__cpp_lib_ranges_reserve_hint) vvv
+            (void) _Approxed;
+#endif // ^^^ !defined(__cpp_lib_ranges_reserve_hint) ^^^
+            {
+                _Unsized(_RANGES _Ubegin(_Range), _RANGES _Uend(_Range));
+            }
+        }
+    }
+
     // Precisely allocates blocks, calls _Func to construct elements in, activates them, and sets size and capacity.
     // _Tidy *this if an exception is thrown; should only be called in constructors.
     template <class _Fn>
@@ -1087,6 +1127,14 @@ public:
     hive(size_type _Count, const _Ty& _Val, const _Alloc& _Allocator = _Alloc());
     hive(size_type _Count, const _Ty& _Val, hive_limits _Block_limits, const _Alloc& _Allocator = _Alloc());
 
+private:
+    template <class _It>
+    constexpr void _Construct_sized_rng(size_type _Size, _It&& _First);
+
+    template <class _It, class _Se>
+    constexpr void _Construct_unsized_rng(_It&& _First, _Se&& _Last);
+
+public:
     template <_Iterator_for_container _Iter>
     hive(_Iter _First, _Iter _Last, const _Alloc& _Allocator = _Alloc());
     template <_Iterator_for_container _Iter>
@@ -1127,6 +1175,12 @@ private:
     // _Orphan non-end iterators.
     template <class _InsertFn, class _AssignFn>
     constexpr void _Assign_n(size_type _Count, _InsertFn _Insert_func, _AssignFn _Assign_func);
+
+    template <class _It>
+    constexpr void _Assign_sized_rng(size_type _Size, _It&& _First);
+
+    template <class _It, class _Se>
+    constexpr void _Assign_unsized_rng(_It&& _First, _Se&& _Last);
 
 public:
     hive& operator=(const hive& _Right);
@@ -1266,6 +1320,12 @@ private:
     // _Orphan end iterator if any insertion occurs.
     template <class _Fn>
     constexpr void _Insert_n(size_type _Count, _Fn _Func);
+
+    template <class _It>
+    constexpr void _Insert_sized_rng(size_type _Size, _It&& _First);
+
+    template <class _It, class _Se>
+    constexpr void _Insert_unsized_rng(_It&& _First, _Se&& _Last);
 
 public:
     void insert(initializer_list<_Ty> _Ilist);

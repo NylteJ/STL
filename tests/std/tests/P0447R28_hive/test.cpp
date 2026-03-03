@@ -1486,6 +1486,62 @@ private:
     }
 
 public:
+    void test_insert() {
+        for (const auto& [limits, counts] : limits_counts_mat) {
+            for (const auto& cnt : counts) {
+                // skip functions like emplace_hint since they are too trivial
+
+                // emplace
+                hive_matrix(
+                    [&](hive_t& cont) {
+                        auto expect = unwrap_to_vec(cont);
+                        expect.reserve(expect.capacity() + cnt);
+
+                        for (auto&& raw_val : gen_raw_rng(cnt)) {
+                            assert(equal_pred(*cont.emplace(raw_val), T{raw_val}));
+                            expect.emplace_back(raw_val);
+                        }
+
+                        assert_permutation(cont, expect);
+                    },
+                    al_1, limits, cnt);
+            }
+        }
+    }
+
+private:
+    struct strong_guarantee_state {
+        vector<raw_value_t> unwrapped_values;
+        vector<citer_t> nonend_iters;
+        citer_t end_iter;
+        size_ty capacity;
+        hive_limits limits;
+        Alloc al;
+
+        explicit strong_guarantee_state(const hive_t& cont)
+            : unwrapped_values(unwrap_to_vec(cont)), nonend_iters(get_hive_nonend_iters(cont)), end_iter(cont.end()),
+              capacity(cont.capacity()), limits(cont.block_capacity_limits()), al(cont.get_allocator()) {}
+
+        void assert_eq(const hive_t& cont) const noexcept {
+            assert(unwrap_to_vec(cont) == unwrapped_values);
+
+            auto it = cont.begin();
+            for (size_t i = 0; i != nonend_iters.size(); ++i) {
+                assert(nonend_iters[i] == it);
+                ++it;
+            }
+            assert(it == cont.end());
+            assert(end_iter == cont.end());
+
+            assert(cont.capacity() == capacity);
+
+            assert_limits(cont, limits);
+
+            assert(cont.get_allocator() == al);
+        }
+    };
+
+public:
     // also including three-way comparison
     void test_iteration() {
         hive_matrix(
@@ -1563,6 +1619,7 @@ public:
 
         test_limits();
         test_ctors();
+        test_insert();
         test_iteration();
 
         DO_IF_VALID(test_EH());
@@ -1883,6 +1940,29 @@ void tests<Alloc, Maker, T, EqualPred, LessPred>::test_EH()
                     }
                 },
                 al_1, cnt);
+        }
+    }
+
+    // insert
+    for (const auto& [limits, counts] : limits_counts_mat) {
+        for (const auto& cnt : counts) {
+            // emplace (strong guarantee)
+            {
+                const auto raw_val = gen_raw_value();
+                hive_matrix(
+                    [&](hive_t& cont) {
+                        strong_guarantee_state state{cont};
+                        const auto heap_states = global_heap_states;
+
+                        global_countdown.construction = 0uz;
+                        assert_throw<my_bad_construct>([&] { cont.emplace(raw_val); });
+                        global_countdown.construction = nullopt;
+
+                        state.assert_eq(cont);
+                        assert(heap_states == global_heap_states);
+                    },
+                    al_1, limits, cnt);
+            }
         }
     }
 }

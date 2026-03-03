@@ -1969,13 +1969,63 @@ public:
 
     // [hive.modifiers], modifiers
     template <class... _Valty>
-    iterator emplace(_Valty&&... _Val);
+    iterator emplace(_Valty&&... _Val) {
+        iterator _Ret;
+        const auto _Nonfull = _Myval._Nonfull_begin();
+        if (_Nonfull != _Myval._Sent()) {
+            const auto _Index = _Nonfull->_Emplace_one([this, &_Val...](_Union_ptr _Where) {
+                _Alty_traits::construct(_Al, _STD addressof(_Where->_Value), _STD forward<_Valty>(_Val)...);
+            });
+
+            if (_Nonfull->_Full()) {
+                _Nonfull._Remove_from_list();
+            }
+            ++_Myval._Size;
+
+            _Ret = iterator{_Block_iter_active{_Nonfull}, _Index};
+        } else if (_Myval._Reserved_first != nullptr) {
+            _Temp_reserved_block _Temp_blk{*this, _Myval._Reserved_first};
+            _Temp_blk._Emplace(_STD forward<_Valty>(_Val)...);
+
+            const auto _New_block = _Temp_blk._Init_and_release();
+            ++_Myval._Reserved_first;
+            _Activate_block(_New_block);
+            _STL_INTERNAL_CHECK(_New_block->_Size == 1);
+            ++_Myval._Size;
+
+            _Ret = iterator{_Block_iter_active{_New_block}, 0};
+        } else {
+            auto _Temp_blk = _Alloc_blk_generously();
+            _Temp_blk._Emplace(_STD forward<_Valty>(_Val)...);
+
+            const auto _New_block = _Temp_blk._Init_and_release();
+            _Activate_block(_New_block);
+            _STL_INTERNAL_CHECK(_New_block->_Size == 1);
+            ++_Myval._Size;
+            _Myval._Capacity += _New_block->_Capacity;
+
+            _Ret = iterator{_Block_iter_active{_New_block}, 0};
+        }
+        _Myval._Orphan_end();
+        return _Ret;
+    }
+
     template <class... _Valty>
-    iterator emplace_hint(const_iterator, _Valty&&... _Val);
-    iterator insert(const _Ty& _Val);
-    iterator insert(_Ty&& _Val);
-    iterator insert(const_iterator, const _Ty& _Val);
-    iterator insert(const_iterator, _Ty&& _Val);
+    iterator emplace_hint(const_iterator, _Valty&&... _Val) {
+        return emplace(_STD forward<_Valty>(_Val)...);
+    }
+    iterator insert(const _Ty& _Val) {
+        return emplace(_Val);
+    }
+    iterator insert(_Ty&& _Val) {
+        return emplace(_STD move(_Val));
+    }
+    iterator insert(const_iterator, const _Ty& _Val) {
+        return emplace(_Val);
+    }
+    iterator insert(const_iterator, _Ty&& _Val) {
+        return emplace(_STD move(_Val));
+    }
 
 private:
     // Grows capacity generously if needed; calls _Func to construct elements in reserved blocks, new blocks, or

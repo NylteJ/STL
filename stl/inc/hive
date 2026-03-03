@@ -2127,7 +2127,69 @@ private:
     // non-full old blocks, and increases size.
     // _Orphan end iterator if any insertion occurs.
     template <class _Fn>
-    constexpr void _Insert_n(size_type _Count, _Fn _Func);
+    constexpr void _Insert_n(size_type _Count, _Fn _Func) {
+#if _ITERATOR_DEBUG_LEVEL != 0
+        if (_Count != 0) {
+            _Myval._Orphan_end();
+        }
+#endif // _ITERATOR_DEBUG_LEVEL != 0
+
+        // If there is sufficient space, insert into existing blocks without allocation.
+        // Otherwise, allocate and prefer inserting into new blocks for better use of contiguous memory.
+        if (_Count > _Myval._Capacity - _Myval._Size) {
+            const auto _Alloc_count = static_cast<size_type>(_Count - (_Myval._Capacity - _Myval._Size));
+            _Alloc_generous_n(
+                _Alloc_count, [this, &_Count, _Func = _STD _Pass_fn(_Func)](_Temp_new_block&& _Tmp_blk) mutable {
+                    const auto _Blk_cap = _Tmp_blk._Capacity();
+                    const auto _Cnt = static_cast<_Block_size_t>((_STD min) (static_cast<size_type>(_Blk_cap), _Count));
+                    _STL_INTERNAL_CHECK(_Cnt > 0);
+
+                    _Func(_Tmp_blk, _Cnt);
+                    _Activate_block(_Tmp_blk._Init_and_release());
+
+                    _Myval._Capacity += _Blk_cap;
+                    _Myval._Size += _Cnt;
+                    _Count -= _Cnt;
+                });
+        }
+
+        while (_Myval._Reserved_first != nullptr && _Count != 0) {
+            const auto _Cnt = static_cast<_Block_size_t>(
+                (_STD min) (static_cast<size_type>(_Myval._Reserved_first->_Capacity), _Count));
+            _STL_INTERNAL_CHECK(_Cnt > 0);
+
+            _Temp_reserved_block _Tmp_blk{*this, _Myval._Reserved_first};
+            _Func(_Tmp_blk, _Cnt);
+            ++_Myval._Reserved_first;
+            _Activate_block(_Tmp_blk._Init_and_release());
+
+            _Myval._Size += _Cnt;
+            _Count -= _Cnt;
+        }
+
+        for (auto _Nonfull = _Myval._Nonfull_begin(); _Count != 0;) {
+            _STL_INTERNAL_CHECK(_Nonfull != _Myval._Sent());
+
+            const auto _Cnt = static_cast<_Block_size_t>(
+                (_STD min) (static_cast<size_type>(_Nonfull->_Capacity - _Nonfull->_Size), _Count));
+            _STL_INTERNAL_CHECK(_Cnt > 0);
+
+            _Nonfull->_Emplace_n(
+                _Cnt, [this, _Func = _STD _Pass_fn(_Func)](_Union_ptr _Ptr, _Block_size_t _Len) mutable {
+                    _Local_unions_backout _Backout{_Al, _Ptr};
+                    _Func(_Backout, _Len);
+                    _Backout._Release();
+                    _Myval._Size += _Len;
+                });
+            if (_Nonfull->_Full()) {
+                (_Nonfull++)._Remove_from_list();
+            } else {
+                _STL_INTERNAL_CHECK(_Cnt == _Count);
+                break;
+            }
+            _Count -= _Cnt;
+        }
+    }
 
     template <class _It>
     constexpr void _Insert_sized_rng(size_type _Size, _It&& _First) {

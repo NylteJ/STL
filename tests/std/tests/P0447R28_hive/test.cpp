@@ -1438,11 +1438,24 @@ private:
     template <class Fn>
     void hive_fn_matrix(Fn func, Alloc& al, hive_limits limits, size_ty cnt_hint) {
         // all these functions return a unique_ptr to ensure no hive move constructor is called
+        bool need_completely_full_test = true;
         func([&] {
             // full hive
-            auto cont = make_unique<hive_t>(from_range, gen_raw_rng(cnt_hint), limits, al);
+            auto cont                 = make_unique<hive_t>(from_range, gen_raw_rng(cnt_hint), limits, al);
+            need_completely_full_test = cont->size() != cont->capacity();
             return cont;
         });
+        if (need_completely_full_test) {
+            func([&] {
+                // completely full hive
+                auto cont      = make_unique<hive_t>(from_range, gen_raw_rng(cnt_hint), limits, al);
+                const auto siz = cont->size();
+                const auto cap = cont->capacity();
+                cont->insert_range(gen_raw_rng(cap - siz));
+                assert(cont->size() == cont->capacity());
+                return cont;
+            });
+        }
 
         // TODO: We'll add more later...
     }
@@ -1504,36 +1517,63 @@ public:
                     },
                     al_1, limits, cnt);
 
+                if constexpr (Cpp17CopyInsertable) {
+                    // fill insert
+                    hive_matrix(
+                        [&](hive_t& cont) {
+                            auto expect = unwrap_to_vec(cont);
+
+                            const auto raw_val = gen_raw_value();
+                            const T val{raw_val};
+                            cont.insert(cnt, val);
+
+                            expect.insert(expect.end(), cnt, raw_val);
+                            assert_permutation(cont, expect);
+                        },
+                        al_1, limits, cnt);
+
+                    // ilist insert
+                    hive_matrix(
+                        [&](hive_t& cont) {
+                            auto expect = unwrap_to_vec(cont);
+
+                            const auto raw_vec = gen_raw_rng(5) | ranges::to<vector>();
+                            cont.insert({T{raw_vec[0]}, T{raw_vec[1]}, T{raw_vec[2]}, T{raw_vec[3]}, T{raw_vec[4]}});
+
+                            expect.insert_range(expect.end(), raw_vec);
+                            assert_permutation(cont, expect);
+                        },
+                        al_1, limits, cnt);
+                }
+
                 // range insert
                 {
                     const auto matrix = [&](auto get_rng) {
-                        if constexpr (!ranges::sized_range<decltype(get_rng())>) { // TODO
-                            if constexpr (ranges::common_range<decltype(get_rng())>) {
-                                hive_matrix(
-                                    [&](hive_t& dst) {
-                                        auto expect = unwrap_to_vec(dst);
-
-                                        auto&& rg = get_rng();
-                                        dst.insert(ranges::begin(rg), ranges::end(rg));
-
-                                        expect.insert_range(expect.end(), unwrap_range(get_rng()));
-                                        assert_permutation(dst, expect);
-                                    },
-                                    al_1, limits, cnt);
-                            }
-
+                        if constexpr (ranges::common_range<decltype(get_rng())>) {
                             hive_matrix(
                                 [&](hive_t& dst) {
                                     auto expect = unwrap_to_vec(dst);
 
                                     auto&& rg = get_rng();
-                                    dst.insert_range(rg);
+                                    dst.insert(ranges::begin(rg), ranges::end(rg));
 
                                     expect.insert_range(expect.end(), unwrap_range(get_rng()));
                                     assert_permutation(dst, expect);
                                 },
                                 al_1, limits, cnt);
                         }
+
+                        hive_matrix(
+                            [&](hive_t& dst) {
+                                auto expect = unwrap_to_vec(dst);
+
+                                auto&& rg = get_rng();
+                                dst.insert_range(rg);
+
+                                expect.insert_range(expect.end(), unwrap_range(get_rng()));
+                                assert_permutation(dst, expect);
+                            },
+                            al_1, limits, cnt);
                     };
 
                     if constexpr (Cpp17CopyInsertable) {
@@ -2018,28 +2058,37 @@ void tests<Alloc, Maker, T, EqualPred, LessPred>::test_EH()
                     },
                     al_1, limits, cnt);
             }
+            // fill
+            {
+                const T val{gen_raw_value()};
+                hive_mat_EH([&](hive_t& cont) { cont.insert(cnt, val); }, al_1, limits, cnt);
+            }
+            // ilist
+            {
+                const auto raw_vec = gen_raw_rng(5) | ranges::to<vector>();
+                const auto ilist   = {T{raw_vec[0]}, T{raw_vec[1]}, T{raw_vec[2]}, T{raw_vec[3]}, T{raw_vec[4]}};
+                hive_mat_EH([&](hive_t& cont) { cont.insert(ilist); }, al_1, limits, cnt);
+            }
             // range
             range_matrix<false>(
                 [&](auto get_rng) {
-                    if constexpr (!ranges::sized_range<decltype(get_rng())>) { // TODO
-                        if constexpr (ranges::common_range<decltype(get_rng())>) {
-                            hive_mat_EH(
-                                [&](hive_t& dst) {
-                                    auto&& rg = get_rng();
-                                    do_not_test_above();
-                                    dst.insert(ranges::begin(rg), ranges::end(rg));
-                                },
-                                al_1, limits, cnt);
-                        }
-
+                    if constexpr (ranges::common_range<decltype(get_rng())>) {
                         hive_mat_EH(
                             [&](hive_t& dst) {
                                 auto&& rg = get_rng();
                                 do_not_test_above();
-                                dst.insert_range(rg);
+                                dst.insert(ranges::begin(rg), ranges::end(rg));
                             },
                             al_1, limits, cnt);
                     }
+
+                    hive_mat_EH(
+                        [&](hive_t& dst) {
+                            auto&& rg = get_rng();
+                            do_not_test_above();
+                            dst.insert_range(rg);
+                        },
+                        al_1, limits, cnt);
                 },
                 al_1, cnt);
         }

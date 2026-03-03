@@ -738,6 +738,73 @@ struct _Hive_iterators_provider {
     _STL_INTERNAL_STATIC_ASSERT(!_Unwrappable_v<_Unchecked_const_iterator>);
 };
 
+template <class _BlockSizeT, class _Ty>
+class _Hive_lambdas {
+public:
+    using _Mode_t = uint8_t;
+    enum : _Mode_t { _Copy = 1 << 1, _Move = 1 << 2, _Uninit = 1 << 3, _Init = 1 << 4 };
+
+private:
+    using _Block_size_t = _BlockSizeT;
+
+    template <_Mode_t _Mode, class _DstIt, class _ValTy>
+    static constexpr void _Do_output(_DstIt& _Dst, _ValTy&& _Val) {
+        using _Cast_type = conditional_t<static_cast<bool>(_Mode & _Move), remove_reference_t<_ValTy>&&, _ValTy&&>;
+        if constexpr (_Mode & _Uninit) {
+            _Dst._Emplace(static_cast<_Cast_type>(_Val));
+        } else {
+            *_Dst = static_cast<_Cast_type>(_Val);
+            ++_Dst;
+        }
+    }
+
+    template <_Mode_t _Mode, class _SrcIt, class _DstIt>
+    static constexpr void _Do_copy_move(_SrcIt& _Src, _Block_size_t _Cnt, _DstIt& _Dst) {
+        _STL_INTERNAL_CHECK(_Cnt > 0);
+        do {
+            _Do_output<_Mode>(_Dst, *_Src);
+            ++_Src;
+            --_Cnt;
+        } while (_Cnt != 0);
+    }
+
+public:
+    template <_Mode_t _Mode>
+    _NODISCARD static constexpr auto _Fill_blk(const _Ty& _Val) noexcept {
+        _STL_INTERNAL_STATIC_ASSERT(!(_Mode & (_Copy | _Move)));
+        return [&]<class _DstIt>(_DstIt&& _Dest, _Block_size_t _Cnt) {
+            _STL_INTERNAL_CHECK(_Cnt > 0);
+            do {
+                _Do_output<_Mode>(_Dest, _Val);
+                --_Cnt;
+            } while (_Cnt != 0);
+        };
+    }
+
+    template <_Mode_t _Mode, class _SrcIt>
+    _NODISCARD static constexpr auto _Copy_move_to_blk(_SrcIt& _Src) noexcept {
+        return [&](auto&& _Dst, _Block_size_t _Cnt) { _Do_copy_move<_Mode>(_Src, _Cnt, _Dst); };
+    }
+    template <_Mode_t _Mode, class _DstIt>
+    _NODISCARD static constexpr auto _Copy_move_from_blk(_DstIt& _Dst) noexcept {
+        return [&](auto&& _Src, _Block_size_t _Cnt) { _Do_copy_move<_Mode>(_Src, _Cnt, _Dst); };
+    }
+
+    template <_Mode_t _Mode, class _DstIt>
+    _NODISCARD static constexpr auto _Copy_move_from_blk_bounded(_DstIt& _Dst, _Block_size_t& _Dst_cnt) noexcept {
+        return [&]<class _SrcIt>(_SrcIt _Src_fst, const _SrcIt& _Src_lst) {
+            _STL_INTERNAL_CHECK(_Src_fst != _Src_lst);
+            _STL_INTERNAL_CHECK(_Dst_cnt > 0);
+            do {
+                _Do_output<_Mode>(_Dst, *_Src_fst);
+                ++_Src_fst;
+                --_Dst_cnt;
+            } while (_Src_fst != _Src_lst && _Dst_cnt != 0);
+            return _Src_fst;
+        };
+    }
+};
+
 template <class _ValueType, class _SizeType, class _DifferenceType, class _Pointer, class _ConstPointer>
 struct _Hive_val_provider {
     struct _Val : _Hive_val_empty_base {
@@ -770,6 +837,8 @@ struct _Hive_val_provider {
         using _Unchecked_const_iterator  = _Iters_provider::_Unchecked_const_iterator;
         using _Local_iterator            = _Iters_provider::_Local_iterator;
         using _Local_iterator_idl_common = _Iters_provider::_Local_iterator_idl_common;
+
+        using _Lambdas = _Hive_lambdas<_Block_size_t, value_type>;
 
         static constexpr auto _Sentinel_ord_id = _STD _Max_limit<size_type>();
 
@@ -950,6 +1019,8 @@ private:
 
     using _Local_iterator            = _Scary_val::_Local_iterator;
     using _Local_iterator_idl_common = _Scary_val::_Local_iterator_idl_common;
+
+    using _Lambdas = _Scary_val::_Lambdas;
 
     static constexpr auto _Sentinel_ord_id = _Scary_val::_Sentinel_ord_id;
 

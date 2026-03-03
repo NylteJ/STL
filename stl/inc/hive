@@ -1987,7 +1987,95 @@ private:
     // Assigns elements via _Assign_func and constructs elements via _Insert_func.
     // _Orphan non-end iterators.
     template <class _InsertFn, class _AssignFn>
-    constexpr void _Assign_n(size_type _Count, _InsertFn _Insert_func, _AssignFn _Assign_func);
+    constexpr void _Assign_n(size_type _Count, _InsertFn _Insert_func, _AssignFn _Assign_func) {
+        if (_Count == 0) {
+            clear();
+            return;
+        }
+
+        _Myval._Orphan_nonend();
+
+        size_type _Assign_count = (_STD min) (_Myval._Size, _Count);
+        auto _Insert_count      = static_cast<size_type>(_Count - _Assign_count);
+
+        const auto _Sent = _Myval._Sent();
+        for (auto _Blk = _Myval._Active_begin(); _Blk != _Sent; ++_Blk) {
+            auto _Assign_cnt =
+                static_cast<_Block_size_t>((_STD min) (static_cast<size_type>(_Blk->_Size), _Assign_count));
+            auto _Insert_cnt = static_cast<_Block_size_t>(
+                (_STD min) (static_cast<size_type>(_Blk->_Capacity - _Blk->_Size), _Insert_count));
+            _STL_INTERNAL_CHECK(_Assign_cnt > 0);
+
+            _Assign_count -= _Assign_cnt;
+
+            _Local_iterator _Iter{_Blk, _Blk->_First_element()};
+            if (_Insert_cnt != 0) {
+                _STL_INTERNAL_CHECK(_Assign_cnt == _Blk->_Size);
+
+                _Insert_count -= _Insert_cnt;
+
+                for (_Block_size_t _Idx = 0;; ++_Idx, ++_Iter) {
+                    _STL_INTERNAL_CHECK(_Insert_cnt > 0);
+                    _STL_INTERNAL_CHECK(_Iter._Index <= _Blk->_Capacity);
+                    _STL_INTERNAL_CHECK(_Idx <= _Iter._Index);
+
+                    // [_Idx, _Iter._Index) is empty
+                    if (_Idx != _Iter._Index) {
+                        const auto _Cnt = (_STD min) (static_cast<_Block_size_t>(_Iter._Index - _Idx), _Insert_cnt);
+
+                        _Blk->_Emplace_n_at(_Idx, _Cnt,
+                            [this, _Insert_func = _STD _Pass_fn(_Insert_func)](
+                                _Union_ptr _Ptr, _Block_size_t _Len) mutable {
+                                _Local_unions_backout _Backout{_Al, _Ptr};
+                                _Insert_func(_Backout, _Len);
+                                _Backout._Release();
+                                _Myval._Size += _Len;
+                            });
+
+                        _Idx += _Cnt;
+                        _Insert_cnt -= _Cnt;
+                        if (_Insert_cnt == 0) {
+                            break;
+                        }
+                    }
+                    _STL_INTERNAL_CHECK(_Idx == _Iter._Index);
+
+                    _STL_INTERNAL_CHECK(_Iter._Index < _Blk->_Capacity);
+                    _Assign_func(_STD addressof(*_Iter), 1);
+                    --_Assign_cnt;
+                }
+
+                if (_Blk->_Full()) {
+                    _Block_iter_nonfull{_Blk}._Remove_from_list();
+                }
+            }
+            _STL_INTERNAL_CHECK(_Insert_cnt == 0);
+
+            // now old elements before _Iter have been assigned
+            if (_Assign_cnt != 0) {
+                _Iter._Index = _Scary_val::_With_block_iter(
+                    _Blk, _Iter._Index, [_Assign_cnt, _Assign_func = _STD _Pass_fn(_Assign_func)](auto&& _Fst) mutable {
+                        _Assign_func(_Fst, _Assign_cnt);
+                        return _Fst;
+                    });
+            }
+
+            if (_Assign_count == 0 && _Insert_count == 0) {
+                if (_Iter._Index != _Blk->_Capacity) {
+                    _Erase(_Unchecked_const_iterator{_Blk, _Iter._Index}, _Unchecked_end());
+                } else {
+                    _Erase(_Unchecked_const_iterator{_Block_iter_active{_Blk->_Next}, _Blk->_Next->_First_element()},
+                        _Unchecked_end());
+                }
+                return;
+            }
+        }
+
+        _STL_INTERNAL_CHECK(_Assign_count == 0);
+        _STL_INTERNAL_CHECK(_Myval._Nonfull_begin() == _Sent);
+        // intentionally grows capacity generously to match std::vector's behavior
+        _Insert_n(_Insert_count, _STD _Pass_fn(_Insert_func));
+    }
 
     template <class _It>
     constexpr void _Assign_sized_rng(size_type _Size, _It&& _First) {
@@ -1996,7 +2084,71 @@ private:
     }
 
     template <class _It, class _Se>
-    constexpr void _Assign_unsized_rng(_It&& _First, _Se&& _Last);
+    constexpr void _Assign_unsized_rng(_It&& _First, _Se&& _Last) {
+        _Myval._Orphan_nonend();
+
+        const auto _Sent = _Myval._Sent();
+        for (auto _Blk = _Myval._Active_begin(); _Blk != _Sent; ++_Blk) {
+            _Local_iterator _Iter{_Blk, _Blk->_First_element()};
+
+            if (!_Blk->_Full()) {
+                _Block_size_t _Idx = 0;
+                while (_First != _Last) {
+                    _STL_INTERNAL_CHECK(_Iter._Index <= _Blk->_Capacity);
+                    _STL_INTERNAL_CHECK(_Idx <= _Iter._Index);
+
+                    // [_Idx, _Iter._Index) is empty
+                    if (_Idx != _Iter._Index) {
+                        do {
+                            _Blk->_Emplace_n_at(_Idx, 1, [&](_Union_ptr _Ptr, _Block_size_t) {
+                                _Alty_traits::construct(_Al, _STD addressof(_Ptr->_Value), *_First);
+                                ++_First;
+                                ++_Myval._Size;
+                                ++_Idx;
+                            });
+                        } while (_Idx != _Iter._Index && _First != _Last);
+
+                        if (_Blk->_Full()) {
+                            _Block_iter_nonfull{_Blk}._Remove_from_list();
+                            break;
+                        }
+
+                        if (_First == _Last) {
+                            break;
+                        }
+                    }
+
+                    _STL_INTERNAL_CHECK(_Iter._Index < _Blk->_Capacity);
+                    _STL_INTERNAL_CHECK(_First != _Last);
+                    *_Iter = *_First;
+                    ++_Iter;
+                    ++_First;
+                    ++_Idx;
+                }
+            }
+
+            _Iter._Index =
+                _Scary_val::_With_block_iters(_Blk, _Iter._Index, _Blk->_Capacity, [&](auto&& _Fst, const auto& _Lst) {
+                    for (; _Fst != _Lst && _First != _Last; ++_Fst, (void) ++_First) {
+                        *_Fst = *_First;
+                    }
+                    return _Fst;
+                });
+
+            if (_First == _Last) {
+                if (_Iter._Index != _Blk->_Capacity) {
+                    _Erase(_Unchecked_const_iterator{_Blk, _Iter._Index}, _Unchecked_end());
+                } else {
+                    _Erase(_Unchecked_const_iterator{_Block_iter_active{_Blk->_Next}, _Blk->_Next->_First_element()},
+                        _Unchecked_end());
+                }
+                return;
+            }
+        }
+
+        _STL_INTERNAL_CHECK(_Myval._Nonfull_begin() == _Sent);
+        _Insert_unsized_rng(_First, _Last);
+    }
 
 public:
     hive& operator=(const hive& _Right);

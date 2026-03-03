@@ -864,6 +864,12 @@ private:
         }
     }();
 
+    static constexpr array limits_counts_mat_reduced = {
+        limits_counts_mat[0],
+        limits_counts_mat[1],
+        limits_counts_mat[2],
+    };
+
 public:
     tests(Alloc alloc_1, Alloc alloc_2, Maker raw_rng_maker, uint64_t random_seed = 142857,
         EqualPred equal_pred_ = EqualPred(), LessPred less_pred_ = LessPred())
@@ -1516,6 +1522,71 @@ private:
     }
 
 public:
+    void test_assign() {
+        for (const auto& [limits, counts] : limits_counts_mat) {
+            for (const auto& old_cnt : counts) {
+                // ilist assign
+                if constexpr (Cpp17CopyInsertable && Cpp17CopyAssignable) {
+                    hive_matrix(
+                        [&](hive_t& cont) {
+                            const auto raw_vec = gen_raw_rng(5) | ranges::to<vector>();
+                            cont.assign({T{raw_vec[0]}, T{raw_vec[1]}, T{raw_vec[2]}, T{raw_vec[3]}, T{raw_vec[4]}});
+                            assert_equal(cont, raw_vec);
+                        },
+                        al_1, limits, old_cnt);
+                }
+
+                for (const auto& new_cnt : counts) {
+                    // fill assign
+                    if constexpr (Cpp17CopyInsertable && Cpp17CopyAssignable) {
+                        hive_matrix(
+                            [&](hive_t& cont) {
+                                const T val{gen_raw_value()};
+                                cont.assign(new_cnt, val);
+                                assert(ranges::all_of(cont, [&](const T& v) { return equal_pred(v, val); }));
+                                assert(cont.size() == new_cnt);
+                            },
+                            al_1, limits, old_cnt);
+                    }
+
+                    // range assign
+                    {
+                        const auto matrix = [&](auto get_rng) {
+                            if constexpr (ranges::common_range<decltype(get_rng())>) {
+                                hive_matrix(
+                                    [&](hive_t& cont) {
+                                        auto&& rg = get_rng();
+                                        cont.assign(ranges::begin(rg), ranges::end(rg));
+                                        assert_equal(cont, get_rng());
+                                    },
+                                    al_1, limits, old_cnt);
+                            }
+
+                            hive_matrix(
+                                [&](hive_t& cont) {
+                                    cont.assign_range(get_rng());
+                                    assert_equal(cont, get_rng());
+                                },
+                                al_1, limits, old_cnt);
+                        };
+
+                        if constexpr (Cpp17CopyInsertable && Cpp17CopyAssignable) {
+                            range_matrix<false>(matrix, al_1, new_cnt);
+                        }
+                        if constexpr (Cpp17MoveInsertable && Cpp17MoveAssignable) {
+                            range_matrix<true>(matrix, al_1, new_cnt);
+                        }
+
+                        if constexpr (!is_same_v<raw_value_t, T> && assignable_from<T&, raw_value_t>) {
+                            auto raw_rng = gen_raw_rng(new_cnt);
+                            matrix([&] -> auto& { return raw_rng; });
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     void test_reserve() {
         hive_matrix(
             [&](hive_t& cont) {
@@ -1942,6 +2013,7 @@ public:
 
         test_limits();
         test_ctors();
+        test_assign();
         test_reserve();
         test_trim_capacity();
         test_insert();
@@ -2279,6 +2351,47 @@ void tests<Alloc, Maker, T, EqualPred, LessPred>::test_EH()
                     });
                 },
                 al_1, cnt);
+        }
+    }
+
+    // assign
+    for (const auto& [limits, counts] : limits_counts_mat_reduced) {
+        for (const auto& old_cnt : counts) {
+            // ilist
+            {
+                const auto raw_vec = gen_raw_rng(5) | ranges::to<vector>();
+                const auto ilist   = {T{raw_vec[0]}, T{raw_vec[1]}, T{raw_vec[2]}, T{raw_vec[3]}, T{raw_vec[4]}};
+                hive_mat_EH([&](hive_t& cont) { cont.assign(ilist); }, al_1, limits, old_cnt);
+            }
+            for (const auto& target_cnt : counts) {
+                // fill
+                {
+                    const T val{gen_raw_value()};
+                    hive_mat_EH([&](hive_t& cont) { cont.assign(target_cnt, val); }, al_1, limits, old_cnt);
+                }
+                // range
+                range_matrix<false>(
+                    [&](auto get_rng) {
+                        if constexpr (ranges::common_range<decltype(get_rng())>) {
+                            hive_mat_EH(
+                                [&](hive_t& cont) {
+                                    auto&& rg = get_rng();
+                                    do_not_test_above();
+                                    cont.assign(ranges::begin(rg), ranges::end(rg));
+                                },
+                                al_1, limits, old_cnt);
+                        }
+
+                        hive_mat_EH(
+                            [&](hive_t& cont) {
+                                auto&& rg = get_rng();
+                                do_not_test_above();
+                                cont.assign_range(rg);
+                            },
+                            al_1, limits, old_cnt);
+                    },
+                    al_1, target_cnt);
+            }
         }
     }
 

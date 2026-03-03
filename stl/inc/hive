@@ -1938,7 +1938,42 @@ public:
 private:
     static constexpr size_t _Default_limits_max =
         (_STD min) ((_STD max) (65536uz / sizeof(_Union), 2uz), _Hard_limits_max);
-    static constexpr size_t _Default_limits_min = 1; // TODO
+    static constexpr size_t _Default_limits_min = [] consteval {
+        // If the minimum limit is too large, a container with only one element wastes a lot of memory.
+        // If the minimum limit is too small, repeated single insertions create many tiny blocks, also wasting memory.
+        // This function finds the minimum limit that balances waste across these two worst cases.
+        constexpr size_t _Skipfield_size = sizeof(_Block_size_t);
+        _STL_INTERNAL_STATIC_ASSERT(_Default_limits_max >= 1);
+
+        constexpr auto _Log2_ceil = [](size_t _Val) {
+            _STL_INTERNAL_CHECK(_Val > 0);
+            const int _Ret = _Unsigned_integer_digits<size_t> - _STD _Countl_zero(_Val - 1);
+            _STL_INTERNAL_CHECK(_Ret >= 0);
+            _STL_INTERNAL_CHECK((1uz << _Ret) >= _Val);
+            _STL_INTERNAL_CHECK(_Ret == 0 || (1uz << (_Ret - 1)) < _Val);
+            return static_cast<size_t>(_Ret);
+        };
+
+        const auto _Search_pred = [&](size_t _Lim) {
+            const size_t _Big_block_waste    = (_Lim - 1) * (sizeof(_Union) + _Skipfield_size);
+            const size_t _Small_blocks_waste = _Log2_ceil((_Default_limits_max + (_Lim - 1)) / _Lim) * sizeof(_Block);
+            return _Big_block_waste < _Small_blocks_waste;
+        };
+
+        // binary search
+        size_t _First = 1;
+        size_t _Last  = _Default_limits_max;
+        while (_First < _Last) {
+            const auto _Mid = _First + (_Last - _First) / 2;
+            if (_Search_pred(_Mid)) {
+                _First = _Mid + 1;
+            } else {
+                _Last = _Mid;
+            }
+        }
+
+        return _First;
+    }();
 
 public:
     _NODISCARD static constexpr hive_limits block_capacity_default_limits() noexcept {

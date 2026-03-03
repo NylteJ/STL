@@ -1200,7 +1200,9 @@ public:
 
 private:
     template <class _It>
-    constexpr void _Construct_sized_rng(size_type _Size, _It&& _First);
+    constexpr void _Construct_sized_rng(size_type _Size, _It&& _First) {
+        _Construct_n(_Size, _Lambdas::template _Copy_move_to_blk<_Lambdas::_Copy | _Lambdas::_Uninit>(_First));
+    }
 
     template <class _It, class _Se>
     constexpr void _Construct_unsized_rng(_It&& _First, _Se&& _Last);
@@ -1269,7 +1271,10 @@ private:
     constexpr void _Assign_n(size_type _Count, _InsertFn _Insert_func, _AssignFn _Assign_func);
 
     template <class _It>
-    constexpr void _Assign_sized_rng(size_type _Size, _It&& _First);
+    constexpr void _Assign_sized_rng(size_type _Size, _It&& _First) {
+        _Assign_n(_Size, _Lambdas::template _Copy_move_to_blk<_Lambdas::_Copy | _Lambdas::_Uninit>(_First),
+            _Lambdas::template _Copy_move_to_blk<_Lambdas::_Copy | _Lambdas::_Init>(_First));
+    }
 
     template <class _It, class _Se>
     constexpr void _Assign_unsized_rng(_It&& _First, _Se&& _Last);
@@ -1437,7 +1442,9 @@ private:
     constexpr void _Insert_n(size_type _Count, _Fn _Func);
 
     template <class _It>
-    constexpr void _Insert_sized_rng(size_type _Size, _It&& _First);
+    constexpr void _Insert_sized_rng(size_type _Size, _It&& _First) {
+        _Insert_n(_Size, _Lambdas::template _Copy_move_to_blk<_Lambdas::_Copy | _Lambdas::_Uninit>(_First));
+    }
 
     template <class _It, class _Se>
     constexpr void _Insert_unsized_rng(_It&& _First, _Se&& _Last);

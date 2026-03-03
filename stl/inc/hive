@@ -1098,7 +1098,22 @@ public:
     hive(initializer_list<_Ty> _Ilist, const _Alloc& _Allocator = _Alloc());
     hive(initializer_list<_Ty> _Ilist, hive_limits _Block_limits, const _Alloc& _Allocator = _Alloc());
 
-    ~hive();
+private:
+    // Destroys all elements and deallocates all blocks.
+    // Only uses the active blocks list and reserved blocks list.
+    // Does not maintain invariants; call only in constructors and destructor.
+    constexpr void _Tidy() noexcept;
+
+    friend _Tidy_guard<hive>;
+
+public:
+    ~hive() noexcept {
+#ifdef _ENABLE_STL_INTERNAL_CHECK
+        _Check_invariants();
+#endif // defined(_ENABLE_STL_INTERNAL_CHECK)
+
+        _Tidy();
+    }
 
     hive& operator=(const hive& _Right);
     hive& operator=(hive&& _Right) noexcept(_Choose_pocma_v<_Alty> != _Pocma_values::_No_propagate_allocators);

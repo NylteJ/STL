@@ -1714,6 +1714,13 @@ public:
 
         hive_matrix(
             [&](hive_t& cont) {
+                cont.clear();
+                assert(cont.empty());
+            },
+            al_1, limits_counts_mat);
+
+        hive_matrix(
+            [&](hive_t& cont) {
                 counted_pred pred{equal_pred};
                 if (cont.empty()) {
                     const auto ret = erase(cont, erase_proxy{ref(pred), raw_value_t{}});

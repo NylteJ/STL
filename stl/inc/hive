@@ -2554,7 +2554,27 @@ public:
 
     void swap(hive&) noexcept(_Alty_traits::propagate_on_container_swap::value || _Alty_traits::is_always_equal::value);
 
-    void clear() noexcept;
+    void clear() noexcept {
+        // does not deallocate; always reserves all active blocks
+        // O(1) if the destruction is trivial
+
+        if constexpr (_Need_destruction) {
+            const auto _Sent = _Myval._Sent();
+            for (auto _Blk = _Myval._Active_begin(); _Blk != _Sent; ++_Blk) {
+                _Destroy_elems(_Blk);
+            }
+        }
+
+        _Myval._Orphan_nonend();
+
+        auto& _Sent            = _Myval._Sent_block;
+        _Sent._Prev->_Next     = _Myval._Reserved_first;
+        _Myval._Reserved_first = _Block_iter_reserved{_Sent._Next};
+        _Sent._Prev = _Sent._Next = _Myval._Sent();
+        _Sent._Prev_nonfull = _Sent._Next_nonfull = _Myval._Sent();
+
+        _Myval._Size = 0;
+    }
 
     // [hive.operations], hive operations
     void splice(hive& _Right);

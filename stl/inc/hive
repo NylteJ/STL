@@ -1274,6 +1274,41 @@ private:
     static constexpr size_t _Hard_limits_max =
         _STD min<size_t>(_STD _Max_limit<_Block_size_t>(), _STD _Max_limit<size_type>());
 
+    template <class _Iter>
+    struct _NODISCARD _Local_backout_base {
+        _STL_INTERNAL_STATIC_ASSERT(_Is_any_of_v<_Iter, _Local_ptr, pointer>);
+
+        constexpr explicit _Local_backout_base(_Alty& _Al_, _Iter _Ptr) noexcept
+            : _Al(_Al_), _First(_Ptr), _Last(_Ptr) {}
+
+        _Local_backout_base(const _Local_backout_base&)            = delete;
+        _Local_backout_base& operator=(const _Local_backout_base&) = delete;
+
+        constexpr ~_Local_backout_base() noexcept {
+            if constexpr (_Need_destruction) {
+                for (; _First != _Last; ++_First) {
+                    _Alty_traits::destroy(_Al, _STD to_address(_First));
+                }
+            }
+        }
+
+        template <class... _Valty>
+        constexpr void _Emplace(_Valty&&... _Val) {
+            _Alty_traits::construct(_Al, _STD to_address(_Last), _STD forward<_Valty>(_Val)...);
+            ++_Last;
+        }
+
+        constexpr void _Release() noexcept {
+            _First = _Last;
+        }
+
+        _Alty& _Al;
+        _Iter _First;
+        _Iter _Last;
+    };
+
+    using _Local_unions_backout = _Local_backout_base<_Local_ptr>;
+    using _Local_elems_backout  = _Local_backout_base<pointer>;
 
     enum class _Temp_block_type { _New, _Reserved };
 

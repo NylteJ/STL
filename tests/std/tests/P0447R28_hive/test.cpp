@@ -1549,6 +1549,55 @@ public:
             al_1, limits_counts_mat);
     }
 
+    void test_trim_capacity() {
+        hive_matrix(
+            [&](hive_t& cont) {
+                const auto vals = unwrap_to_vec(cont);
+                auto old_cap    = cont.capacity();
+                try_forbid_alloc();
+                cont.trim_capacity();
+                try_allow_alloc();
+                assert(cont.capacity() <= old_cap);
+                assert_equal(cont, vals);
+
+                old_cap = cont.capacity();
+                cont.reserve(static_cast<size_ty>(old_cap + 1));
+                try_forbid_alloc();
+                cont.trim_capacity();
+                try_allow_alloc();
+                assert(cont.capacity() == old_cap);
+                assert_equal(cont, vals);
+            },
+            al_1, limits_counts_mat);
+
+        hive_matrix(
+            [&](hive_t& cont) {
+                const auto vals    = unwrap_to_vec(cont);
+                const auto old_cap = cont.capacity();
+                try_forbid_alloc();
+                cont.trim_capacity(old_cap);
+                try_allow_alloc();
+                assert(cont.capacity() == old_cap);
+                assert_equal(cont, vals);
+
+                try_forbid_alloc();
+                cont.trim_capacity(static_cast<size_ty>(old_cap + 1));
+                try_allow_alloc();
+                assert(cont.capacity() == old_cap);
+                assert_equal(cont, vals);
+
+                const auto cont_size = cont.size();
+                cont.reserve(min(cont.max_size(), static_cast<size_ty>(cont.capacity() + 1)));
+                cont.reserve(min(cont.max_size(), static_cast<size_ty>(cont.capacity() + 1)));
+                try_forbid_alloc();
+                cont.trim_capacity(static_cast<size_ty>(cont_size + 1));
+                try_allow_alloc();
+                assert(cont.capacity() >= cont_size + 1uz);
+                assert_equal(cont, vals);
+            },
+            al_1, limits_counts_mat);
+    }
+
     void test_insert() {
         for (const auto& [limits, counts] : limits_counts_mat) {
             for (const auto& cnt : counts) {
@@ -1894,6 +1943,7 @@ public:
         test_limits();
         test_ctors();
         test_reserve();
+        test_trim_capacity();
         test_insert();
         test_erase();
         test_unique();

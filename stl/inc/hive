@@ -2119,8 +2119,16 @@ public:
 
     void shrink_to_fit();
 
-    void trim_capacity() noexcept;
-    void trim_capacity(size_type _Min_capacity) noexcept;
+    void trim_capacity() noexcept {
+        trim_capacity(0);
+    }
+    void trim_capacity(size_type _Min_capacity) noexcept {
+        auto& _Res_first = _Myval._Reserved_first;
+        while (_Res_first != nullptr && _Myval._Capacity - _Res_first->_Capacity >= _Min_capacity) {
+            _Myval._Capacity -= _Res_first->_Capacity;
+            _Dealloc_block(_Res_first++);
+        }
+    }
 
     _NODISCARD constexpr hive_limits block_capacity_limits() const noexcept {
         return _Myval._Limits;

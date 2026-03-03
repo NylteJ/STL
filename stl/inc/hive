@@ -1507,6 +1507,12 @@ private:
         _Blk->_Order_id = _Ord_id;
     }
 
+    // Adds the block to the reserved blocks list; does not modify size or capacity.
+    constexpr void _Reserve_block(_Block_ptr _Blk) noexcept {
+        _Blk->_Next            = _Myval._Reserved_first;
+        _Myval._Reserved_first = _Block_iter_reserved{_Blk};
+    }
+
     constexpr void _Renumber_blocks() noexcept {
         const auto _Sent = _Myval._Sent();
         for (auto _Blk = _Myval._Active_begin(); _Blk != _Sent; ++_Blk) {
@@ -1984,7 +1990,19 @@ public:
         return _Myval._Capacity;
     }
 
-    void reserve(size_type _New_capacity);
+    void reserve(size_type _New_capacity) {
+        if (_New_capacity <= _Myval._Capacity) {
+            return;
+        }
+
+        // (length_error is thrown by _Alloc_exact_n() via _Xlength())
+
+        _Alloc_exact_n(
+            static_cast<size_type>(_New_capacity - _Myval._Capacity), [this](_Temp_new_block _Tmp_blk) noexcept {
+                _Myval._Capacity += _Tmp_blk._Capacity();
+                _Reserve_block(_Tmp_blk._Uninit_release());
+            });
+    }
 
     void shrink_to_fit();
 

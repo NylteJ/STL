@@ -1456,6 +1456,15 @@ private:
                 return cont;
             });
         }
+        func([&] {
+            // hive with reserved blocks
+            auto cont      = make_unique<hive_t>(from_range, gen_raw_rng(cnt_hint), limits, al);
+            const auto cap = cont->capacity();
+            const auto siz = cont->size();
+            cont->reserve(static_cast<size_ty>(cap + siz));
+            assert(cont->capacity() >= cap + siz);
+            return cont;
+        });
 
         // TODO: We'll add more later...
     }
@@ -1497,6 +1506,39 @@ private:
     }
 
 public:
+    void test_reserve() {
+        hive_matrix(
+            [&](hive_t& cont) {
+                const auto old_begin = cont.begin();
+                const auto vals      = unwrap_to_vec(cont);
+                const auto old_cap   = cont.capacity();
+
+                try_forbid_alloc();
+                cont.reserve(old_cap);
+                try_allow_alloc();
+                assert(cont.capacity() == old_cap);
+                assert(old_begin == cont.begin());
+                assert_equal(cont, vals);
+                try_forbid_alloc();
+                cont.reserve(0);
+                try_allow_alloc();
+                assert(cont.capacity() == old_cap);
+                assert(old_begin == cont.begin());
+                assert_equal(cont, vals);
+
+                cont.reserve(static_cast<size_ty>(old_cap + 1));
+                assert(cont.capacity() >= old_cap + 1uz);
+                assert(old_begin == cont.begin());
+                assert_equal(cont, vals);
+
+                // > max_size()
+                if (cont.max_size() < numeric_limits<size_ty>::max()) {
+                    assert_throw<length_error>([&] { cont.reserve(static_cast<size_ty>(cont.max_size() + 1)); });
+                }
+            },
+            al_1, limits_counts_mat);
+    }
+
     void test_insert() {
         for (const auto& [limits, counts] : limits_counts_mat) {
             for (const auto& cnt : counts) {
@@ -1702,6 +1744,7 @@ public:
 
         test_limits();
         test_ctors();
+        test_reserve();
         test_insert();
         test_iteration();
 
@@ -2035,6 +2078,13 @@ void tests<Alloc, Maker, T, EqualPred, LessPred>::test_EH()
                     });
                 },
                 al_1, cnt);
+        }
+    }
+
+    for (const auto& [limits, counts] : limits_counts_mat) {
+        for (const auto& cnt : counts) {
+            // reserve
+            hive_mat_EH([&](hive_t& cont) { cont.reserve(cont.capacity() + cnt); }, al_1, limits, cnt);
         }
     }
 

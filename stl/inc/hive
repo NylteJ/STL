@@ -1136,22 +1136,43 @@ private:
 
 public:
     template <_Iterator_for_container _Iter>
-    hive(_Iter _First, _Iter _Last, const _Alloc& _Allocator = _Alloc());
+    hive(_Iter _First, _Iter _Last, const _Alloc& _Allocator = _Alloc())
+        : hive(_STD move(_First), _STD move(_Last), block_capacity_default_limits(), _Allocator) {}
     template <_Iterator_for_container _Iter>
-    hive(_Iter _First, _Iter _Last, hive_limits _Block_limits, const _Alloc& _Allocator = _Alloc());
+    hive(_Iter _First, _Iter _Last, hive_limits _Block_limits, const _Alloc& _Allocator = _Alloc())
+        : _Al(_Allocator), _Myval(_Block_limits) {
+        _Verify_limits(_Block_limits);
+        _Dispatch_range_op(
+            _First, _Last, [&](auto&&... _Args) { _Construct_sized_rng(_Args...); },
+            [&](auto&&... _Args) { _Construct_unsized_rng(_Args...); });
+    }
 
     template <_Container_compatible_range<_Ty> _Rng>
-    hive(from_range_t, _Rng&& _Range, const _Alloc& _Allocator = _Alloc());
+    hive(from_range_t, _Rng&& _Range, const _Alloc& _Allocator = _Alloc())
+        : hive(from_range, _Range, block_capacity_default_limits(), _Allocator) {}
     template <_Container_compatible_range<_Ty> _Rng>
-    hive(from_range_t, _Rng&& _Range, hive_limits _Block_limits, const _Alloc& _Allocator = _Alloc());
+    hive(from_range_t, _Rng&& _Range, hive_limits _Block_limits, const _Alloc& _Allocator = _Alloc())
+        : _Al(_Allocator), _Myval(_Block_limits) {
+        _Verify_limits(_Block_limits);
+        _Dispatch_range_op(
+            _Range, [&](auto&&... _Args) { _Construct_sized_rng(_Args...); },
+            [&](auto&&... _Args) { _Construct_unsized_rng(_Args...); },
+            [&](size_type _Approx_size, auto&&... _Args) {
+                _Tidy_guard _Guard{this};
+                reserve(_Approx_size);
+                _Insert_unsized_rng(_Args...);
+                _Guard._Target = nullptr;
+            });
+    }
 
     hive(const hive& _Right);
     hive(hive&& _Right) noexcept;
     hive(const hive& _Right, const type_identity_t<_Alloc>& _Allocator);
     hive(hive&& _Right, const type_identity_t<_Alloc>& _Allocator);
 
-    hive(initializer_list<_Ty> _Ilist, const _Alloc& _Allocator = _Alloc());
-    hive(initializer_list<_Ty> _Ilist, hive_limits _Block_limits, const _Alloc& _Allocator = _Alloc());
+    hive(initializer_list<_Ty> _Ilist, const _Alloc& _Allocator = _Alloc()) : hive(from_range, _Ilist, _Allocator) {}
+    hive(initializer_list<_Ty> _Ilist, hive_limits _Block_limits, const _Alloc& _Allocator = _Alloc())
+        : hive(from_range, _Ilist, _Block_limits, _Allocator) {}
 
 private:
     // Destroys all elements and deallocates all blocks.
@@ -1185,13 +1206,36 @@ private:
 public:
     hive& operator=(const hive& _Right);
     hive& operator=(hive&& _Right) noexcept(_Choose_pocma_v<_Alty> != _Pocma_values::_No_propagate_allocators);
-    hive& operator=(initializer_list<_Ty> _Ilist);
+
+    hive& operator=(initializer_list<_Ty> _Ilist) {
+        assign_range(_Ilist);
+        return *this;
+    }
+
     template <_Iterator_for_container _Iter>
-    void assign(_Iter _First, _Iter _Last);
+    void assign(_Iter _First, _Iter _Last) {
+        _Dispatch_range_op(
+            _First, _Last, [&](auto&&... _Args) { _Assign_sized_rng(_Args...); },
+            [&](auto&&... _Args) { _Assign_unsized_rng(_Args...); });
+    }
     template <_Container_compatible_range<_Ty> _Rng>
-    void assign_range(_Rng&& _Range);
+    void assign_range(_Rng&& _Range) {
+        static_assert(assignable_from<_Ty&, _RANGES range_reference_t<_Rng>>,
+            "Elements must be assignable from the range's reference type (N5032 [sequence.reqmts]/61).");
+        _Dispatch_range_op(
+            _Range, [&](auto&&... _Args) { _Assign_sized_rng(_Args...); },
+            [&](auto&&... _Args) { _Assign_unsized_rng(_Args...); },
+            [&](size_type _Approx_size, auto&&... _Args) {
+                reserve(_Approx_size);
+                _Assign_unsized_rng(_Args...);
+            });
+    }
+
     void assign(size_type _Count, const _Ty& _Val);
-    void assign(initializer_list<_Ty> _Ilist);
+
+    void assign(initializer_list<_Ty> _Ilist) {
+        assign_range(_Ilist);
+    }
 
     _NODISCARD allocator_type get_allocator() const noexcept {
         return static_cast<allocator_type>(_Al);
@@ -1328,11 +1372,27 @@ private:
     constexpr void _Insert_unsized_rng(_It&& _First, _Se&& _Last);
 
 public:
-    void insert(initializer_list<_Ty> _Ilist);
+    void insert(initializer_list<_Ty> _Ilist) {
+        insert_range(_Ilist);
+    }
+
     template <_Container_compatible_range<_Ty> _Rng>
-    void insert_range(_Rng&& _Range);
+    void insert_range(_Rng&& _Range) {
+        _Dispatch_range_op(
+            _Range, [&](auto&&... _Args) { _Insert_sized_rng(_Args...); },
+            [&](auto&&... _Args) { _Insert_unsized_rng(_Args...); },
+            [&](size_type _Approx_size, auto&&... _Args) {
+                _Insert_unsized_rng(_Args...); // TODO: will be optimized later
+                (void) _Approx_size;
+            });
+    }
     template <_Iterator_for_container _Iter>
-    void insert(_Iter _First, _Iter _Last);
+    void insert(_Iter _First, _Iter _Last) {
+        _Dispatch_range_op(
+            _First, _Last, [&](auto&&... _Args) { _Insert_sized_rng(_Args...); },
+            [&](auto&&... _Args) { _Insert_unsized_rng(_Args...); });
+    }
+
     void insert(size_type _Count, const _Ty& _Val);
 
     iterator erase(const_iterator _Where);

@@ -1825,6 +1825,40 @@ private:
         _Guard._Target = nullptr;
     }
 
+    // Returns a lambda that copies/moves elements from an active blocks list to the given destination.
+    // If moving, destroys source elements and deallocates source blocks.
+    template <typename _Lambdas::_Mode_t _Mode, class _Hive>
+    _NODISCARD static constexpr auto _Copy_move_elems_from(
+        _Block_iter_active& _Src_blk, _Block_size_t& _Src_idx, _Hive& _Src_hive) {
+        return [&](auto&& _Dst, _Block_size_t _Dst_cnt) {
+            _STL_INTERNAL_CHECK(_Dst_cnt != 0);
+            do {
+                _Src_idx = _Scary_val::_With_block_iters(_Src_blk, _Src_idx, _Src_blk->_Capacity,
+                    _Lambdas::template _Copy_move_from_blk_bounded<_Mode>(_Dst, _Dst_cnt));
+
+                if (_Src_idx != _Src_blk->_Capacity) {
+                    _STL_INTERNAL_CHECK(_Dst_cnt == 0);
+                    break;
+                }
+
+                if constexpr (_Mode & _Lambdas::_Move) {
+                    const auto _Blk = _Src_blk++;
+                    _Block_iter_active{_Blk}._Remove_from_list();
+                    if (!_Blk->_Full()) {
+                        _Block_iter_nonfull{_Blk}._Remove_from_list();
+                    }
+                    _Src_hive._Myval._Capacity -= _Blk->_Capacity;
+                    _Src_hive._Myval._Size -= _Blk->_Size;
+                    _Src_hive._Destroy_elems(_Blk);
+                    _Src_hive._Dealloc_block(_Blk);
+                } else {
+                    ++_Src_blk;
+                }
+                _Src_idx = _Src_blk->_First_element();
+            } while (_Dst_cnt != 0);
+        };
+    }
+
 public:
     explicit hive(size_type _Count, const _Alloc& _Allocator = _Alloc())
         : hive(_Count, block_capacity_default_limits(), _Allocator) {}
@@ -1913,6 +1947,19 @@ public:
             });
     }
 
+private:
+    template <class _Hive>
+    constexpr void _Copy_move_construct_one_by_one(_Hive&& _Right) {
+        constexpr bool _Is_move = is_rvalue_reference_v<_Hive&&>;
+        constexpr auto _Mode    = (_Is_move ? _Lambdas::_Move : _Lambdas::_Copy) | _Lambdas::_Uninit;
+
+        auto _Src_blk = _Right._Myval._Active_begin();
+        auto _Src_idx = _Src_blk->_First_element();
+
+        _Construct_n(_Right._Myval._Size, _Copy_move_elems_from<_Mode>(_Src_blk, _Src_idx, _Right));
+    }
+
+public:
     hive(const hive& _Right);
     hive(hive&& _Right) noexcept;
     hive(const hive& _Right, const type_identity_t<_Alloc>& _Allocator);
@@ -2148,6 +2195,18 @@ private:
 
         _STL_INTERNAL_CHECK(_Myval._Nonfull_begin() == _Sent);
         _Insert_unsized_rng(_First, _Last);
+    }
+
+    template <class _Hive>
+    constexpr void _Copy_move_assign_one_by_one(_Hive&& _Right) {
+        constexpr auto _Mode_base = is_rvalue_reference_v<_Hive&&> ? _Lambdas::_Move : _Lambdas::_Copy;
+
+        auto _Src_blk = _Right._Myval._Active_begin();
+        auto _Src_idx = _Src_blk->_First_element();
+
+        _Assign_n(_Right._Myval._Size,
+            _Copy_move_elems_from<_Mode_base | _Lambdas::_Uninit>(_Src_blk, _Src_idx, _Right),
+            _Copy_move_elems_from<_Mode_base | _Lambdas::_Init>(_Src_blk, _Src_idx, _Right));
     }
 
 public:

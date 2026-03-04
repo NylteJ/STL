@@ -1436,6 +1436,27 @@ public:
                         matrix([&] -> auto& { return raw_rng; });
                     }
                 }
+
+                // copy ctor
+                if constexpr (Cpp17CopyInsertable) {
+                    auto test = [&](const Alloc& expected_al, auto&&... args) {
+                        hive_matrix(
+                            [&](const hive_t& src) {
+                                const auto src_vals = unwrap_to_vec(src);
+                                hive_t dst(src, args...);
+                                assert(dst.get_allocator() == expected_al);
+                                assert_limits(dst, limits);
+                                assert_equal(dst, src_vals);
+
+                                assert(src.get_allocator() == al_1);
+                                assert_limits(src, limits);
+                                assert_equal(src, src_vals);
+                            },
+                            al_1, limits, cnt);
+                    };
+                    test(al_traits::select_on_container_copy_construction(al_1));
+                    test(al_2, al_2);
+                }
             }
         }
     }
@@ -1583,6 +1604,36 @@ public:
                         }
                     }
                 }
+            }
+        }
+
+        // copy assign
+        static constexpr bool pocca = al_traits::propagate_on_container_copy_assignment::value;
+        if constexpr (Cpp17CopyInsertable && Cpp17CopyAssignable) {
+            const auto test = [&](hive_t& left, const hive_t& right) {
+                const auto l_al  = left.get_allocator();
+                const auto l_lim = left.block_capacity_limits();
+                const auto r_al  = right.get_allocator();
+                const auto r_val = unwrap_to_vec(right);
+                const auto r_lim = right.block_capacity_limits();
+
+                left = right;
+
+                assert_equal(left, r_val);
+                assert_equal(right, r_val);
+                assert_limits(left, l_lim);
+                assert_limits(right, r_lim);
+                if constexpr (pocca) {
+                    assert(left.get_allocator() == r_al);
+                } else {
+                    assert(left.get_allocator() == l_al);
+                }
+                assert(right.get_allocator() == r_al);
+            };
+
+            hive_matrix_2(test, al_1, al_1, limits_counts_mat_reduced);
+            if constexpr (different_al) {
+                hive_matrix_2(test, al_1, al_2, limits_counts_mat_reduced);
             }
         }
     }
@@ -2351,6 +2402,8 @@ void tests<Alloc, Maker, T, EqualPred, LessPred>::test_EH()
                     });
                 },
                 al_1, cnt);
+            // copy
+            hive_matrix([&](const hive_t& src) { EH::test([&] { hive_t dst(src, al_1); }); }, al_1, limits, cnt);
         }
     }
 
@@ -2394,6 +2447,16 @@ void tests<Alloc, Maker, T, EqualPred, LessPred>::test_EH()
             }
         }
     }
+    // copy assign
+    hive_matrix(
+        [&](const hive_t& right) {
+            for (const auto& [limits, counts] : limits_counts_mat_reduced) {
+                for (const auto& cnt : counts) {
+                    hive_mat_EH([&](hive_t& left) { left = right; }, al_1, limits, cnt);
+                }
+            }
+        },
+        al_1, limits_counts_mat_reduced);
 
     for (const auto& [limits, counts] : limits_counts_mat) {
         for (const auto& cnt : counts) {

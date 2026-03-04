@@ -1960,9 +1960,15 @@ private:
     }
 
 public:
-    hive(const hive& _Right);
+    hive(const hive& _Right) : hive(_Right, _Alty_traits::select_on_container_copy_construction(_Right._Al)) {}
+
     hive(hive&& _Right) noexcept;
-    hive(const hive& _Right, const type_identity_t<_Alloc>& _Allocator);
+
+    hive(const hive& _Right, const type_identity_t<_Alloc>& _Allocator)
+        : _Al(_Allocator), _Myval(_Right._Myval._Limits) {
+        _Copy_move_construct_one_by_one(_Right);
+    }
+
     hive(hive&& _Right, const type_identity_t<_Alloc>& _Allocator);
 
     hive(initializer_list<_Ty> _Ilist, const _Alloc& _Allocator = _Alloc()) : hive(from_range, _Ilist, _Allocator) {}
@@ -2210,7 +2216,23 @@ private:
     }
 
 public:
-    hive& operator=(const hive& _Right);
+    hive& operator=(const hive& _Right) {
+        if (_STD addressof(_Right) == this) {
+            return *this;
+        }
+
+        if constexpr (_Choose_pocca_v<_Alty>) {
+            if (_Al != _Right._Al) {
+                clear();
+                trim_capacity();
+            }
+        }
+        _STD _Pocca(_Al, _Right._Al);
+
+        _Copy_move_assign_one_by_one(_Right);
+        return *this;
+    }
+
     hive& operator=(hive&& _Right) noexcept(_Choose_pocma_v<_Alty> != _Pocma_values::_No_propagate_allocators);
 
     hive& operator=(initializer_list<_Ty> _Ilist) {

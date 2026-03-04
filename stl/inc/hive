@@ -1189,6 +1189,29 @@ struct _Hive_val_provider {
             return pointer_traits<_Block_ptr>::pointer_to(_Sent_block);
         }
 
+        constexpr void _Move_from(_Val& _Right) noexcept {
+            _STL_INTERNAL_CHECK(_Sent_block._Next == _Sent() && _Sent_block._Prev == _Sent());
+            _STL_INTERNAL_CHECK(_Sent_block._Next_nonfull == _Sent() && _Sent_block._Prev_nonfull == _Sent());
+            _STL_INTERNAL_CHECK(_Reserved_first == nullptr);
+            _STL_INTERNAL_CHECK(_Limits == _Right._Limits);
+            _STL_INTERNAL_CHECK(_Size == 0 && _Capacity == 0);
+
+            _Right._Orphan_end();
+
+            if (_Right._Capacity == 0) {
+                return;
+            }
+
+            _Block_iter_active{_Sent()}._Splice_before(_Right._Sent());
+            _Block_iter_nonfull{_Sent()}._Splice_before(_Right._Sent());
+
+            _Reserved_first = _STD exchange(_Right._Reserved_first, _Block_iter_reserved{nullptr});
+            _Size           = _STD exchange(_Right._Size, size_type{0});
+            _Capacity       = _STD exchange(_Right._Capacity, size_type{0});
+
+            _Adopt_all(this);
+        }
+
         template <class _Fn>
         static constexpr void _Visit_block_iter_n(_Block_ptr _Blk, _Fn _Func) {
             // pass wrapped pointer when the block is full to enable further optimizations
@@ -1962,14 +1985,29 @@ private:
 public:
     hive(const hive& _Right) : hive(_Right, _Alty_traits::select_on_container_copy_construction(_Right._Al)) {}
 
-    hive(hive&& _Right) noexcept;
+    hive(hive&& _Right) noexcept : _Al(_STD move(_Right._Al)), _Myval(_Right._Myval._Limits) {
+        _Myval._Move_from(_Right._Myval);
+    }
 
     hive(const hive& _Right, const type_identity_t<_Alloc>& _Allocator)
         : _Al(_Allocator), _Myval(_Right._Myval._Limits) {
         _Copy_move_construct_one_by_one(_Right);
     }
 
-    hive(hive&& _Right, const type_identity_t<_Alloc>& _Allocator);
+    hive(hive&& _Right, const type_identity_t<_Alloc>& _Allocator)
+        noexcept(_Alty_traits::is_always_equal::value) // strengthened
+        : _Al(_Allocator), _Myval(_Right._Myval._Limits) {
+        if constexpr (!_Alty_traits::is_always_equal::value) {
+            if (_Allocator != _Right._Al) {
+                _Right._Myval._Orphan_nonend();
+                _Right._Myval._Orphan_end();
+                _Copy_move_construct_one_by_one(_STD move(_Right));
+                return;
+            }
+        }
+
+        _Myval._Move_from(_Right._Myval);
+    }
 
     hive(initializer_list<_Ty> _Ilist, const _Alloc& _Allocator = _Alloc()) : hive(from_range, _Ilist, _Allocator) {}
     hive(initializer_list<_Ty> _Ilist, hive_limits _Block_limits, const _Alloc& _Allocator = _Alloc())
@@ -2233,7 +2271,75 @@ public:
         return *this;
     }
 
-    hive& operator=(hive&& _Right) noexcept(_Choose_pocma_v<_Alty> != _Pocma_values::_No_propagate_allocators);
+    hive& operator=(hive&& _Right) noexcept(_Choose_pocma_v<_Alty> != _Pocma_values::_No_propagate_allocators) {
+        if (_STD addressof(_Right) == this) {
+            return *this;
+        }
+
+        constexpr auto _Pocma_val = _Choose_pocma_v<_Alty>;
+        if constexpr (_Pocma_val == _Pocma_values::_No_propagate_allocators) {
+            if (_Al != _Right._Al) {
+                _Right._Myval._Orphan_nonend();
+                _Right._Myval._Orphan_end();
+                _Copy_move_assign_one_by_one(_STD move(_Right));
+                return *this;
+            }
+        }
+
+        if constexpr (!_Alty_traits::is_always_equal::value) {
+            if (_Al != _Right._Al) {
+                // discard all old blocks as they cannot be reused
+                clear();
+                trim_capacity(); // FIXME: complexity, see below
+                                 //        (does "valid but unspecified state" allow changing the allocator?)
+                _STD _Pocma(_Al, _Right._Al);
+                _Myval._Limits = _Right._Myval._Limits;
+                _Myval._Move_from(_Right._Myval);
+                return *this;
+            }
+        }
+        _STL_INTERNAL_CHECK(_Al == _Right._Al);
+
+        _STD _Pocma(_Al, _Right._Al);
+        _Myval._Orphan_nonend();
+
+        const auto _Old_limits = _Myval._Limits;
+        _Myval._Limits         = _Right._Myval._Limits;
+
+        size_type _Reserved_cap = _Myval._Capacity;
+        if (_Myval._Size != 0) {
+            // For the old blocks, destroy their elements and try to reserve them (temporarily in _Right).
+            const auto _Sent = _Myval._Sent();
+            for (auto _Cur_blk = _Myval._Active_begin(); _Cur_blk != _Sent;) {
+                const auto _Blk = _Cur_blk++;
+                _Reserved_cap -= _Blk->_Capacity;
+                _Destroy_elems(_Blk);
+                if (_Myval._Limits._Contains(_Blk->_Capacity) && _Right._Should_reserve(_Blk)) {
+                    _Right._Myval._Capacity += _Blk->_Capacity;
+                    _Right._Reserve_block(_Blk);
+                } else {
+                    _Dealloc_block(_Blk);
+                }
+            }
+            _Myval._Sent_block._Next = _Myval._Sent_block._Prev = _Sent;
+            _Myval._Sent_block._Next_nonfull = _Myval._Sent_block._Prev_nonfull = _Sent;
+
+            _Myval._Size = 0;
+        }
+        _Myval._Capacity = 0;
+
+        const auto _My_reserved = _STD exchange(_Myval._Reserved_first, _Block_iter_reserved{nullptr});
+        _Myval._Move_from(_Right._Myval);
+
+        // The complexity requirement prevents us from releasing reserved blocks (otherwise the complexity would be
+        // linear in the number of reserved blocks). Therefore, reserved blocks can only be transferred to _Right, and
+        // the limits must be adjusted accordingly.
+        _Right._Myval._Reserved_first = _My_reserved;
+        _Right._Myval._Capacity       = _Reserved_cap;
+        _Right._Myval._Limits         = _Old_limits;
+
+        return *this;
+    }
 
     hive& operator=(initializer_list<_Ty> _Ilist) {
         assign_range(_Ilist);

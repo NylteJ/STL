@@ -1457,6 +1457,41 @@ public:
                     test(al_traits::select_on_container_copy_construction(al_1));
                     test(al_2, al_2);
                 }
+
+                // move ctor
+                {
+                    auto test = [&](const Alloc& expected_al, auto&&... args) {
+                        hive_matrix(
+                            [&](hive_t& src) {
+                                const bool fast_move = src.get_allocator() == expected_al;
+
+                                const auto src_vals  = unwrap_to_vec(src);
+                                const auto src_begin = src.begin();
+
+                                if (fast_move) {
+                                    try_forbid_alloc();
+                                }
+                                hive_t dst(move(src), args...);
+                                if (fast_move) {
+                                    try_allow_alloc();
+                                    if (!dst.empty()) {
+                                        assert(src_begin == dst.begin());
+                                    }
+                                }
+
+                                assert(dst.get_allocator() == expected_al);
+                                assert_limits(dst, limits);
+                                assert_equal(dst, src_vals);
+
+                                assert(src.empty());
+                            },
+                            al_1, limits, cnt);
+                    };
+                    test(al_1);
+                    if constexpr (!different_al || Cpp17MoveInsertable) {
+                        test(al_2, al_2);
+                    }
+                }
             }
         }
     }
@@ -1634,6 +1669,51 @@ public:
             hive_matrix_2(test, al_1, al_1, limits_counts_mat_reduced);
             if constexpr (different_al) {
                 hive_matrix_2(test, al_1, al_2, limits_counts_mat_reduced);
+            }
+        }
+
+        // move assign
+        static constexpr bool pocma = al_traits::propagate_on_container_move_assignment::value;
+        if constexpr ((pocma || !different_al) || (Cpp17MoveInsertable && Cpp17MoveAssignable)) {
+            const auto test = [&](hive_t& left, hive_t& right) {
+                const bool fast_move = pocma || left.get_allocator() == right.get_allocator();
+
+                const auto l_al    = left.get_allocator();
+                const auto l_lim   = left.block_capacity_limits();
+                const auto r_al    = right.get_allocator();
+                const auto r_val   = unwrap_to_vec(right);
+                const auto r_lim   = right.block_capacity_limits();
+                const auto r_begin = right.begin();
+
+                if (fast_move) {
+                    try_forbid_alloc();
+                }
+                left = move(right);
+                if (fast_move) {
+                    try_allow_alloc();
+                    if (!left.empty()) {
+                        assert(r_begin == left.begin());
+                    }
+                }
+
+                assert_equal(left, r_val);
+                if (fast_move) {
+                    assert_limits(left, r_lim);
+                } else {
+                    assert_limits(left, l_lim);
+                }
+                if constexpr (pocma) {
+                    assert(left.get_allocator() == r_al);
+                } else {
+                    assert(left.get_allocator() == l_al);
+                }
+
+                assert(right.empty());
+            };
+
+            hive_matrix_2(test, al_1, al_2, limits_counts_mat_reduced);
+            if constexpr (different_al) {
+                hive_matrix_2(test, al_2, al_1, limits_counts_mat_reduced);
             }
         }
     }
@@ -2404,6 +2484,8 @@ void tests<Alloc, Maker, T, EqualPred, LessPred>::test_EH()
                 al_1, cnt);
             // copy
             hive_matrix([&](const hive_t& src) { EH::test([&] { hive_t dst(src, al_1); }); }, al_1, limits, cnt);
+            // move
+            hive_mat_EH([&](hive_t& src) { hive_t dst(move(src), al_1); }, al_2, limits, cnt);
         }
     }
 
@@ -2457,6 +2539,20 @@ void tests<Alloc, Maker, T, EqualPred, LessPred>::test_EH()
             }
         },
         al_1, limits_counts_mat_reduced);
+    // move assign
+    for (const auto& [r_limits, r_counts] : limits_counts_mat_reduced) {
+        for (const auto& r_cnt : r_counts) {
+            for (const auto& [l_limits, l_counts] : limits_counts_mat_reduced) {
+                for (const auto& l_cnt : l_counts) {
+                    hive_fn_matrix(
+                        [&](auto get_right) {
+                            hive_mat_EH([&](hive_t& left) { left = move(*get_right()); }, al_2, l_limits, l_cnt);
+                        },
+                        al_1, r_limits, r_cnt);
+                }
+            }
+        }
+    }
 
     for (const auto& [limits, counts] : limits_counts_mat) {
         for (const auto& cnt : counts) {

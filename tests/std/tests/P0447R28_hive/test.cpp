@@ -2082,7 +2082,92 @@ private:
         }
     };
 
+    void splice_nothrow(hive_t& src, hive_t& dst) noexcept {
+        auto expect = unwrap_to_vec(src);
+        expect.insert_range(expect.end(), unwrap_range(dst));
+        const auto cap_sum = src.capacity() + dst.capacity();
+
+        try_forbid_alloc();
+        dst.splice(src);
+        try_allow_alloc();
+
+        assert(src.empty());
+        assert_permutation(dst, expect);
+        assert(src.capacity() + dst.capacity() == cap_sum);
+    }
+    void splice_throw(hive_t& src, hive_t& dst) noexcept {
+        strong_guarantee_state src_state{src};
+        strong_guarantee_state dst_state{dst};
+
+        try_forbid_alloc();
+        assert_throw<length_error>([&] { dst.splice(src); });
+        try_allow_alloc();
+
+        src_state.assert_eq(src);
+        dst_state.assert_eq(dst);
+    }
+
 public:
+    void test_splice() {
+        for (const auto& [src_limits, src_counts] : limits_counts_mat_reduced) {
+            for (const auto& src_cnt : src_counts) {
+                for (const auto& [dst_limits, dst_counts] : limits_counts_mat_reduced) {
+                    for (const auto& dst_cnt : dst_counts) {
+                        if (dst_limits.max >= src_limits.max && src_limits.min >= dst_limits.min) {
+                            // completely contains
+                            hive_matrix_2([&](hive_t& src, hive_t& dst) { splice_nothrow(src, dst); }, al_1, al_1,
+                                src_limits, dst_limits, src_cnt, dst_cnt);
+                        } else if (src_limits.max >= dst_limits.min && dst_limits.max >= src_limits.min) {
+                            // has overlap
+#if 0 // TODO: reshape() is unimplemented
+                            if constexpr (Cpp17MoveInsertable) { // can reshape
+                                const size_t common_size =
+                                    src_limits.min >= dst_limits.min ? src_limits.min : dst_limits.min;
+                                assert(src_limits.min <= common_size);
+                                assert(common_size <= src_limits.max);
+                                assert(dst_limits.min <= common_size);
+                                assert(common_size <= dst_limits.max);
+                                const hive_limits common_limits{common_size, common_size};
+
+                                hive_matrix_2(
+                                    [&](hive_t& src, hive_t& dst) {
+                                        src.reshape(src_limits);
+                                        splice_nothrow(src, dst);
+                                    },
+                                    al_1, al_1, common_limits, dst_limits, src_cnt, dst_cnt);
+                            }
+#endif
+                        } else {
+                            // no overlap
+                            hive_matrix_2(
+                                [&](hive_t& src, hive_t& dst) {
+                                    if (!src.empty()) {
+                                        splice_throw(src, dst);
+                                    } else {
+                                        splice_nothrow(src, dst);
+                                    }
+                                },
+                                al_1, al_1, src_limits, dst_limits, src_cnt, dst_cnt);
+                        }
+                    }
+                }
+            }
+        }
+
+        // > max_size()
+        if constexpr (small_al) {
+            hive_t src(al_1);
+            hive_t dst(al_1);
+            const auto max_size = dst.max_size();
+            assert(max_size >= 2);
+
+            src.insert_range(gen_raw_rng(max_size / 2 + 1));
+            dst.insert_range(gen_raw_rng(max_size / 2 + 1));
+
+            splice_throw(src, dst); // nonstandard test, _Xlength()
+        }
+    }
+
     void test_unique() {
         hive_matrix(
             [&](hive_t& cont) {
@@ -2197,6 +2282,7 @@ public:
         test_insert();
         test_erase();
         test_swap();
+        test_splice();
         test_unique();
         test_get_iterator();
         test_iteration();

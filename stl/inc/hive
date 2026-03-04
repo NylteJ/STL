@@ -3004,8 +3004,59 @@ public:
     }
 
     // [hive.operations], hive operations
-    void splice(hive& _Right);
-    void splice(hive&& _Right);
+    void splice(hive& _Right) {
+#if _ITERATOR_DEBUG_LEVEL != 0
+        if constexpr (!_Alty_traits::is_always_equal::value) {
+            _STL_VERIFY(_Al == _Right._Al, "hive allocators incompatible for splice");
+        }
+#endif // _ITERATOR_DEBUG_LEVEL != 0
+        _STL_VERIFY(_STD addressof(_Right) != this, "cannot splice hive with itself");
+
+        if (_Right.empty()) {
+            _Myval._Orphan_end();
+            _Right._Myval._Orphan_end();
+            return;
+        }
+
+        if (!_Myval._Limits._Overlaps(_Right._Myval._Limits)) {
+            _STD _Xlength_error("hive limits incompatible for splice");
+        }
+
+        const bool _Need_limits_check  = !_Myval._Limits._Contains(_Right._Myval._Limits);
+        const bool _Need_capacity_calc = _Right._Myval._Reserved_first != nullptr;
+        size_type _Right_active_cap    = _Need_capacity_calc ? size_type{0} : _Right._Myval._Capacity;
+        if (_Need_limits_check || _Need_capacity_calc) {
+            const auto _Sent = _Right._Myval._Sent();
+            for (auto _Blk = _Right._Myval._Active_begin(); _Blk != _Sent; ++_Blk) {
+                if (_Need_limits_check && !_Myval._Limits._Contains(_Blk->_Capacity)) {
+                    _STD _Xlength_error("hive limits incompatible for splice");
+                }
+
+                if (_Need_capacity_calc) {
+                    _Right_active_cap += _Blk->_Capacity;
+                }
+            }
+        }
+
+        if (_Right_active_cap > max_size() - _Myval._Capacity) {
+            _Xlength();
+        }
+        _STL_INTERNAL_CHECK(_Right._Myval._Size <= max_size() - _Myval._Size);
+
+        _Myval._Orphan_end();
+        _Right._Myval._Orphan_end();
+
+        _Myval._Capacity += _Right_active_cap;
+        _Right._Myval._Capacity -= _Right_active_cap;
+        _Myval._Size += _Right._Myval._Size;
+        _Right._Myval._Size = 0;
+
+        _Right._Myval._Adopt_all(_STD addressof(_Myval));
+        _Splice_blocks(_Right._Myval._Sent_block);
+    }
+    void splice(hive&& _Right) {
+        splice(_Right);
+    }
 
     template <class _Pr2 = equal_to<_Ty>>
     size_type unique(_Pr2 _Pred = _Pr2()) noexcept(

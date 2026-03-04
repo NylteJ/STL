@@ -2014,6 +2014,42 @@ public:
             al_1, limits_counts_mat);
     }
 
+    void test_swap() {
+        const auto test = [&](Alloc& l_al, Alloc& r_al, auto&& func) {
+            hive_matrix_2(
+                [&](hive_t& left, hive_t& right) {
+                    const auto l_val = unwrap_to_vec(left);
+                    const auto l_cap = left.capacity();
+                    const auto l_lim = left.block_capacity_limits();
+                    const auto r_val = unwrap_to_vec(right);
+                    const auto r_cap = right.capacity();
+                    const auto r_lim = right.block_capacity_limits();
+
+                    try_forbid_alloc();
+                    func(left, right);
+                    try_allow_alloc();
+
+                    assert_equal(left, r_val);
+                    assert_equal(right, l_val);
+                    assert(left.capacity() == r_cap);
+                    assert(right.capacity() == l_cap);
+                    assert_limits(left, r_lim);
+                    assert_limits(right, l_lim);
+                    if constexpr (al_traits::propagate_on_container_swap::value) {
+                        assert(left.get_allocator() == r_al);
+                        assert(right.get_allocator() == l_al);
+                    }
+                },
+                l_al, r_al, limits_counts_mat_reduced);
+        };
+        test(al_1, al_1, [](hive_t& left, hive_t& right) { left.swap(right); });
+        test(al_1, al_1, [](hive_t& left, hive_t& right) { swap(left, right); });
+        if constexpr (different_al && al_traits::propagate_on_container_swap::value) {
+            test(al_1, al_2, [](hive_t& left, hive_t& right) { left.swap(right); });
+            test(al_1, al_2, [](hive_t& left, hive_t& right) { swap(left, right); });
+        }
+    }
+
 private:
     struct strong_guarantee_state {
         vector<raw_value_t> unwrapped_values;
@@ -2149,6 +2185,7 @@ public:
         test_trim_capacity();
         test_insert();
         test_erase();
+        test_swap();
         test_unique();
         test_iteration();
 

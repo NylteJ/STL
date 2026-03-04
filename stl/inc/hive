@@ -1189,6 +1189,45 @@ struct _Hive_val_provider {
             return pointer_traits<_Block_ptr>::pointer_to(_Sent_block);
         }
 
+        constexpr void _Swap(_Val& _Right) noexcept {
+            _STL_INTERNAL_CHECK(this != _STD addressof(_Right));
+
+            _Orphan_end();
+            _Right._Orphan_end();
+
+            _Reserved_first._Swap(_Right._Reserved_first);
+            _STD swap(_Size, _Right._Size);
+            _STD swap(_Capacity, _Right._Capacity);
+            _STD swap(_Limits, _Right._Limits);
+
+            swap(_Sent_block._Next, _Right._Sent_block._Next); // intentional ADL
+            swap(_Sent_block._Prev, _Right._Sent_block._Prev); // intentional ADL
+            swap(_Sent_block._Next_nonfull, _Right._Sent_block._Next_nonfull); // intentional ADL
+            swap(_Sent_block._Prev_nonfull, _Right._Sent_block._Prev_nonfull); // intentional ADL
+
+            constexpr auto _Adapt_blocks = [](_Block_ptr _Sent, _Block_ptr _Other_sent) static {
+                if (_Sent->_Next == _Other_sent) {
+                    _Sent->_Next = _Sent->_Prev = _Sent;
+                    _Sent->_Next_nonfull = _Sent->_Prev_nonfull = _Sent;
+                } else {
+                    _Sent->_Next->_Prev = _Sent->_Prev->_Next = _Sent;
+                    if (_Sent->_Next_nonfull == _Other_sent) {
+                        _Sent->_Next_nonfull = _Sent->_Prev_nonfull = _Sent;
+                    } else {
+                        _Sent->_Next_nonfull->_Prev_nonfull = _Sent->_Prev_nonfull->_Next_nonfull = _Sent;
+                    }
+                }
+            };
+
+            _Adapt_blocks(_Sent(), _Right._Sent());
+            _Adapt_blocks(_Right._Sent(), _Sent());
+
+#if _ITERATOR_DEBUG_LEVEL != 0
+            _Adopt_all(this);
+            _Right._Adopt_all(_STD addressof(_Right));
+#endif // _ITERATOR_DEBUG_LEVEL != 0
+        }
+
         constexpr void _Move_from(_Val& _Right) noexcept {
             _STL_INTERNAL_CHECK(_Sent_block._Next == _Sent() && _Sent_block._Prev == _Sent());
             _STL_INTERNAL_CHECK(_Sent_block._Next_nonfull == _Sent() && _Sent_block._Prev_nonfull == _Sent());
@@ -2899,7 +2938,12 @@ public:
         return _Last._Mutable(); // _Mutable ignores the invalidity
     }
 
-    void swap(hive&) noexcept(_Alty_traits::propagate_on_container_swap::value || _Alty_traits::is_always_equal::value);
+    void swap(hive& _Right) noexcept /* strengthened */ {
+        if (this != _STD addressof(_Right)) {
+            _STD _Pocs(_Al, _Right._Al);
+            _Myval._Swap(_Right._Myval);
+        }
+    }
 
     void clear() noexcept {
         // does not deallocate; always reserves all active blocks
@@ -3068,7 +3112,9 @@ template <_RANGES input_range _Rng, _Allocator_for_container _Alloc = allocator<
 hive(from_range_t, _Rng&&, hive_limits, _Alloc = _Alloc()) -> hive<_RANGES range_value_t<_Rng>, _Alloc>;
 
 _EXPORT_STD template <class _Ty, class _Alloc>
-void swap(hive<_Ty, _Alloc>& _Left, hive<_Ty, _Alloc>& _Right) noexcept(noexcept(_Left.swap(_Right)));
+void swap(hive<_Ty, _Alloc>& _Left, hive<_Ty, _Alloc>& _Right) noexcept /* strengthened */ {
+    _Left.swap(_Right);
+}
 
 _EXPORT_STD template <class _Ty, class _Alloc, class _Uty = _Ty>
 hive<_Ty, _Alloc>::size_type erase(hive<_Ty, _Alloc>& _Cont, const _Uty& _Val) {

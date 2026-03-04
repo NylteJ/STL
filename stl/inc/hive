@@ -2495,6 +2495,42 @@ public:
             });
     }
 
+private:
+    // Splices the active and nonfull block lists to *this, and renumber blocks if needed.
+    // Size and capacity remain unchanged.
+    constexpr void _Splice_blocks(_Block& _Rtsent) noexcept {
+        auto& _Mysent          = _Myval._Sent_block;
+        const auto _Rtsent_ptr = pointer_traits<_Block_ptr>::pointer_to(_Rtsent);
+        _STL_INTERNAL_CHECK(_Rtsent._Next != _Rtsent_ptr);
+
+        const auto _My_head = static_cast<size_type>(_Mysent._Next->_Order_id + 1); // wraps to 0 when empty
+        const auto _Rt_tail = static_cast<size_type>(_Rtsent._Prev->_Order_id + 1); // > 0
+        if (_Rt_tail < _My_head) {
+            _Myval._Active_begin()._Splice_before(_Rtsent_ptr);
+        } else {
+            const auto _My_tail = static_cast<size_type>(_Mysent._Prev->_Order_id + 1); // wraps to 0 when empty
+            const auto _Rt_head = static_cast<size_type>(_Rtsent._Next->_Order_id + 1); // > 0
+            if (_Rt_head <= _My_tail) {
+                _Renumber_blocks();
+
+                const auto _My_tail_new = static_cast<size_type>(_Mysent._Prev->_Order_id + 1);
+                if (_Rt_head <= _My_tail_new) {
+                    _Rtsent._Next->_Order_id = _My_tail_new;
+                    _STL_INTERNAL_CHECK(_Rtsent._Next->_Order_id != _Sentinel_ord_id);
+                    for (_Block_iter_active _Blk{_Rtsent._Next->_Next}; _Blk != _Rtsent_ptr; ++_Blk) {
+                        _Blk->_Order_id = static_cast<size_type>(_Blk->_Prev->_Order_id + 1);
+                        _STL_INTERNAL_CHECK(_Blk->_Order_id != _Sentinel_ord_id);
+                    }
+                }
+            }
+
+            _Block_iter_active{_Myval._Sent()}._Splice_before(_Rtsent_ptr);
+        }
+
+        _Block_iter_nonfull{_Myval._Sent()}._Splice_before(_Rtsent_ptr);
+    }
+
+public:
     void shrink_to_fit();
 
     void trim_capacity() noexcept {

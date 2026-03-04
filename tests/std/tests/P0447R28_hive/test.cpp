@@ -2103,6 +2103,17 @@ public:
             al_1, limits_counts_mat);
     }
 
+    void test_get_iterator() {
+        hive_matrix(
+            [&](hive_t& cont) {
+                for (auto iter = cont.begin(); iter != cont.end(); ++iter) {
+                    assert(cont.get_iterator(pointer_traits<ptr_t>::pointer_to(*iter)) == iter);
+                    assert(cont.get_iterator(pointer_traits<cptr_t>::pointer_to(*iter)) == iter);
+                }
+            },
+            al_1, limits_counts_mat);
+    }
+
     // also including three-way comparison
     void test_iteration() {
         hive_matrix(
@@ -2187,6 +2198,7 @@ public:
         test_erase();
         test_swap();
         test_unique();
+        test_get_iterator();
         test_iteration();
 
         DO_IF_VALID(test_EH());

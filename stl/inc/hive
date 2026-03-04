@@ -3021,8 +3021,38 @@ public:
     template <class _Pr2 = less<_Ty>>
     void sort(_Pr2 _Pred = _Pr2());
 
-    _NODISCARD iterator get_iterator(const_pointer _Ptr) noexcept;
-    _NODISCARD const_iterator get_iterator(const_pointer _Ptr) const noexcept;
+    _NODISCARD iterator get_iterator(const_pointer _Ptr) noexcept {
+        return static_cast<const hive*>(this)->get_iterator(_Ptr)._Mutable();
+    }
+    _NODISCARD const_iterator get_iterator(const_pointer _Ptr) const noexcept {
+        // Note that fancy pointer might not provide the implementation-defined strict total order comparison.
+        const auto _Ptr_union = reinterpret_cast<const _Union*>(_STD to_address(_Ptr));
+        const auto _Sent      = const_cast<_Scary_val&>(_Myval)._Sent();
+        for (auto _Blk = _Myval._Active_begin(); _Blk != _Sent; ++_Blk) {
+            const auto _First_union = _STD to_address(_Blk->_Data);
+            const auto _Last_union  = _First_union + _Blk->_Capacity;
+
+            // Technically, we should use std::less and std::less_equal (N5032 [expr.rel]/4, [comparisons.general]/2),
+            // but since they just invoke built-in comparison operators internally, we omit them here.
+            if (_First_union <= _Ptr_union && _Ptr_union < _Last_union) {
+                const auto _Index = static_cast<_Block_size_t>(_Ptr_union - _First_union);
+
+#if _ITERATOR_DEBUG_LEVEL != 0 // FIXME: is this too heavyweight?
+                if (!_Blk->_Full()) {
+                    for (_Local_iterator _Iter{_Blk, _Blk->_First_element()}; _Iter._Index != _Index; ++_Iter) {
+                        _STL_VERIFY(_Iter._Index < _Index, "cannot get hive iterator for invalid pointer");
+                    }
+                }
+#endif // _ITERATOR_DEBUG_LEVEL != 0
+
+                return const_iterator{_Blk, _Index};
+            }
+        }
+#if _MSVC_STL_HARDENING_HIVE || _ITERATOR_DEBUG_LEVEL != 0
+        _STL_REPORT_ERROR("cannot get iterator for pointer outside this hive");
+#endif // _MSVC_STL_HARDENING_HIVE || _ITERATOR_DEBUG_LEVEL != 0
+        _STL_UNREACHABLE;
+    }
 
     _NODISCARD constexpr _Unchecked_iterator _Unchecked_begin() noexcept {
         return static_cast<const hive*>(this)->_Unchecked_begin()._Mutable();

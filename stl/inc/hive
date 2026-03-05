@@ -221,11 +221,25 @@ using _Hive_iterator_base = _Hive_iterator_base12;
 template <size_t _ValueSize>
 using _Hive_skipfield_t = conditional_t<_ValueSize >= 4, uint16_t, uint8_t>;
 
+template <class _ValueT>
+constexpr bool _Hive_use_bitset = sizeof(_ValueT) < 2 * sizeof(_Hive_skipfield_t<sizeof(_ValueT)>);
+
+template <class _ValueT>
+struct _Hive_union_provider {
+    _STL_INTERNAL_STATIC_ASSERT(false);
+};
+template <class _ValueT, class _HiveSizeT, class _AnyPtrT>
+struct _Hive_block_provider {
+    _STL_INTERNAL_STATIC_ASSERT(false);
+};
+
+// skipfield mode
 template <class _SkipT>
 constexpr _SkipT _Hive_skipfield_zero = 0; // for sentinel block
 
 template <class _ValueT>
-struct _Hive_union_provider {
+    requires (!_Hive_use_bitset<_ValueT>)
+struct _Hive_union_provider<_ValueT> {
     union _Union {
         struct _Free_list_node {
             using _Index = _Hive_skipfield_t<sizeof(_ValueT)>;
@@ -241,7 +255,8 @@ struct _Hive_union_provider {
 };
 
 template <class _ValueT, class _HiveSizeT, class _AnyPtrT>
-struct _Hive_block_provider {
+    requires (!_Hive_use_bitset<_ValueT>)
+struct _Hive_block_provider<_ValueT, _HiveSizeT, _AnyPtrT> {
     struct _Block : _Hive_block_base {
         static constexpr bool _Bitset_mode = false;
 
@@ -555,6 +570,15 @@ struct _Hive_block_provider {
         }
     };
 };
+
+// bitset mode
+template <class _ValueT>
+    requires (_Hive_use_bitset<_ValueT>)
+struct _Hive_union_provider<_ValueT>;
+
+template <class _ValueT, class _HiveSizeT, class _AnyPtrT>
+    requires (_Hive_use_bitset<_ValueT>)
+struct _Hive_block_provider<_ValueT, _HiveSizeT, _AnyPtrT>;
 
 template <class _BlockT, class _BlockPtr>
 struct _Hive_block_iterators_provider {

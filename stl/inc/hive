@@ -572,6 +572,106 @@ struct _Hive_block_provider<_ValueT, _HiveSizeT, _AnyPtrT> {
 };
 
 // bitset mode
+template <size_t _BitCount>
+struct _Hive_bitset {
+    using _Word_t = size_t;
+
+    static constexpr size_t _Word_bits  = sizeof(_Word_t) * CHAR_BIT;
+    static constexpr size_t _Word_count = (_BitCount + (_Word_bits - 1)) / _Word_bits;
+
+    _Word_t _Words[_Word_count];
+
+    struct _Sentinel_tag {};
+    constexpr explicit _Hive_bitset(_Sentinel_tag) noexcept {
+        if !consteval {
+            _Words[0] = 0;
+        } else {
+            _Reset();
+        }
+    }
+
+    constexpr _Hive_bitset() noexcept = default;
+
+    constexpr void _Set(size_t _Pos) noexcept {
+        _STL_INTERNAL_CHECK(_Pos < _BitCount);
+        _Words[_Pos / _Word_bits] |= 1uz << (_Pos % _Word_bits);
+    }
+
+    constexpr void _Reset(size_t _Pos) noexcept {
+        _STL_INTERNAL_CHECK(_Pos < _BitCount);
+        _Words[_Pos / _Word_bits] &= ~(1uz << (_Pos % _Word_bits));
+    }
+
+    constexpr void _Reset(size_t _First, size_t _Last) noexcept {
+        _STL_INTERNAL_CHECK(_First < _Last && _Last <= _BitCount);
+
+        // mostly copied from _Fill_vbool
+        auto _WFirst         = _Words + _First / _Word_bits;
+        const auto _WLast    = _Words + _Last / _Word_bits;
+        const auto _FirstOff = _First % _Word_bits;
+        const auto _LastOff  = _Last % _Word_bits;
+
+        constexpr auto _FullWord    = static_cast<_Word_t>(-1);
+        const auto _FirstSourceMask = _FullWord << _FirstOff;
+        const auto _FirstDestMask   = ~_FirstSourceMask;
+        constexpr auto _FillVal     = static_cast<_Word_t>(0);
+
+        if (_WFirst == _WLast) {
+            // We already excluded _First == _Last, so here _LastOff > 0 and the shift is safe
+            const auto _LastSourceMask = _FullWord >> (_Word_bits - _LastOff);
+            const auto _LastDestMask   = ~_LastSourceMask;
+            const auto _SourceMask     = _FirstSourceMask & _LastSourceMask;
+            const auto _DestMask       = _FirstDestMask | _LastDestMask;
+            *_WFirst                   = (*_WFirst & _DestMask) | (_FillVal & _SourceMask);
+            return;
+        }
+
+        *_WFirst = (*_WFirst & _FirstDestMask) | (_FillVal & _FirstSourceMask);
+        ++_WFirst;
+
+        if consteval {
+            for (; _WFirst != _WLast; ++_WFirst) {
+                *_WFirst = _FillVal;
+            }
+        } else {
+            const auto _WFirst_ch   = reinterpret_cast<const char*>(_WFirst);
+            const auto _WLast_ch    = reinterpret_cast<const char*>(_WLast);
+            const auto _Count_ch    = static_cast<size_t>(_WLast_ch - _WFirst_ch);
+            constexpr auto _ValChar = static_cast<unsigned char>(0);
+            _CSTD memset(_WFirst, _ValChar, _Count_ch);
+            _WFirst = _WLast;
+        }
+
+        if (_LastOff != 0) {
+            const auto _LastSourceMask = _FullWord >> (_Word_bits - _LastOff);
+            const auto _LastDestMask   = ~_LastSourceMask;
+            *_WFirst                   = (*_WFirst & _LastDestMask) | (_FillVal & _LastSourceMask);
+        }
+    }
+
+    constexpr void _Reset() noexcept {
+        for (auto&& _Word : _Words) {
+            _Word = 0;
+        }
+    }
+
+    _NODISCARD constexpr bool operator[](size_t _Pos) const noexcept {
+        _STL_INTERNAL_CHECK(_Pos < _BitCount);
+        return _Words[_Pos / _Word_bits] & (1uz << (_Pos % _Word_bits));
+    }
+
+    // precondition: bitset is not all zeros
+    _NODISCARD constexpr size_t _First_one() const noexcept {
+        // Performance note: This could potentially be optimized through manual vectorization.
+        size_t _Idx = 0;
+        while (_Words[_Idx] == 0) {
+            ++_Idx;
+            _STL_INTERNAL_CHECK(_Idx < _Word_count);
+        }
+        return _Idx * _Word_bits + _STD _Countr_zero(_Words[_Idx]);
+    }
+};
+
 template <class _ValueT>
     requires (_Hive_use_bitset<_ValueT>)
 struct _Hive_union_provider<_ValueT>;

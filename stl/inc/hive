@@ -2762,7 +2762,50 @@ public:
         return {1, (_STD min) (_Allocator_max, _Hard_limits_max)};
     }
 
-    void reshape(hive_limits _New_limits);
+    void reshape(hive_limits _New_limits_) {
+        _Verify_limits(_New_limits_);
+
+        const auto _Old_limits      = _Myval._Limits;
+        const _Limits_t _New_limits = _New_limits_;
+        _Myval._Limits              = _New_limits;
+
+        if (_New_limits._Contains(_Old_limits) || _Myval._Capacity == 0) {
+            return;
+        }
+
+        struct _Limits_backout {
+            hive* _Hive;
+            _Limits_t _Limits;
+
+            constexpr ~_Limits_backout() noexcept {
+                if (_Hive != nullptr) {
+                    _Hive->_Myval._Limits = _Limits;
+                }
+            }
+        };
+        _Limits_backout _Backout{this, _Limits_t::_Union_of(_Old_limits, _New_limits)};
+
+        if (_New_limits._Overlaps(_Old_limits)) {
+            const auto _Block_limits_incompatible = [_New_limits](const auto& _Blk) {
+                return !_New_limits._Contains(_Blk->_Capacity);
+            };
+
+            _Drop_reserved_if(_Block_limits_incompatible);
+
+            if (_Myval._Size != 0) {
+                _Block _Temp_sent = _Block::_Sentinel(_Temp_sent);
+                const auto _Count = _Pick_active_for_rebuild(_Block_limits_incompatible, _Temp_sent);
+                _Rebuild_n(_Count, _Temp_sent);
+            }
+        } else {
+            trim_capacity();
+            if (_Myval._Size != 0) {
+                _Rebuild_all();
+            }
+        }
+
+        _Backout._Hive = nullptr;
+    }
 
     // [hive.modifiers], modifiers
     template <class... _Valty>

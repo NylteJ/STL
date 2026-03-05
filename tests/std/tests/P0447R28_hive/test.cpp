@@ -1800,6 +1800,40 @@ public:
             al_1, limits_counts_mat);
     }
 
+    void test_reshape()
+        requires Cpp17MoveInsertable
+    {
+        for (const auto& [old_limits, counts] : limits_counts_mat) {
+            for (const auto& cnt : counts) {
+                for (const auto& [new_limits, _] : limits_counts_mat) {
+                    hive_matrix(
+                        [&](hive_t& cont) {
+                            const auto vals      = unwrap_to_vec(cont);
+                            const bool all_fit   = new_limits.min <= old_limits.min && old_limits.max <= new_limits.max;
+                            const auto old_begin = cont.begin();
+
+                            if (all_fit) {
+                                try_forbid_alloc();
+                            }
+                            cont.reshape(new_limits);
+                            if (all_fit) {
+                                try_allow_alloc();
+                                assert(old_begin == cont.begin());
+                            }
+
+                            if (all_fit) {
+                                assert_equal(cont, vals);
+                            } else {
+                                assert_permutation(cont, vals);
+                            }
+                            assert_limits(cont, new_limits);
+                        },
+                        al_1, old_limits, cnt);
+                }
+            }
+        }
+    }
+
     void test_insert() {
         for (const auto& [limits, counts] : limits_counts_mat) {
             for (const auto& cnt : counts) {
@@ -2119,7 +2153,6 @@ public:
                                 src_limits, dst_limits, src_cnt, dst_cnt);
                         } else if (src_limits.max >= dst_limits.min && dst_limits.max >= src_limits.min) {
                             // has overlap
-#if 0 // TODO: reshape() is unimplemented
                             if constexpr (Cpp17MoveInsertable) { // can reshape
                                 const size_t common_size =
                                     src_limits.min >= dst_limits.min ? src_limits.min : dst_limits.min;
@@ -2136,7 +2169,6 @@ public:
                                     },
                                     al_1, al_1, common_limits, dst_limits, src_cnt, dst_cnt);
                             }
-#endif
                         } else {
                             // no overlap
                             hive_matrix_2(
@@ -2279,6 +2311,7 @@ public:
         test_assign();
         test_reserve();
         test_trim_capacity();
+        DO_IF_VALID(test_reshape());
         test_insert();
         test_erase();
         test_swap();
@@ -2693,6 +2726,10 @@ void tests<Alloc, Maker, T, EqualPred, LessPred>::test_EH()
         for (const auto& cnt : counts) {
             // reserve
             hive_mat_EH([&](hive_t& cont) { cont.reserve(cont.capacity() + cnt); }, al_1, limits, cnt);
+            // reshape
+            for (const auto& [new_limits, _] : limits_counts_mat) {
+                hive_mat_EH([&](hive_t& cont) { cont.reshape(new_limits); }, al_1, limits, cnt);
+            }
         }
     }
 

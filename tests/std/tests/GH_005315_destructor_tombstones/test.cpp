@@ -32,6 +32,10 @@ int main() {}
 #include <variant>
 #endif
 
+#if _HAS_CXX26
+#include <hive>
+#endif
+
 #include <test_death.hpp>
 
 using namespace std;
@@ -126,6 +130,13 @@ void test_move_only_function() {
 }
 #endif // _HAS_CXX23
 
+#if _HAS_CXX26
+template <class T>
+void test_hive() {
+    call_on_destroyed_object<hive<T>>([](auto& h) { (void) (h.begin() == h.end()); });
+}
+#endif // _HAS_CXX26
+
 int main(int argc, char* argv[]) {
     std_testing::death_test_executive exec;
 
@@ -159,6 +170,12 @@ int main(int argc, char* argv[]) {
 #if _HAS_CXX23
         test_move_only_function,
 #endif // _HAS_CXX23
+
+#if _HAS_CXX26
+        test_hive<bool>,
+        test_hive<short>,
+        test_hive<int>,
+#endif // _HAS_CXX26
     });
 
     return exec.run(argc, argv);

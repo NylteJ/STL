@@ -1864,6 +1864,19 @@ struct _Hive_val_provider {
 #endif // _ITERATOR_DEBUG_LEVEL != 0
         }
 
+#if _MSVC_STL_DESTRUCTOR_TOMBSTONES
+        constexpr ~_Val() noexcept {
+            if constexpr (is_pointer_v<_Block_ptr>) {
+                if !consteval {
+                    const auto _Tombstone{reinterpret_cast<_Block_ptr>(_MSVC_STL_UINTPTR_TOMBSTONE_VALUE)};
+                    _Reserved_first   = _Block_iter_reserved{_Tombstone};
+                    _Sent_block._Next = _Sent_block._Prev = _Tombstone;
+                    _Sent_block._Next_nonfull = _Sent_block._Prev_nonfull = _Tombstone;
+                }
+            }
+        }
+#endif // _MSVC_STL_DESTRUCTOR_TOMBSTONES
+
         _NODISCARD constexpr _Block_iter_active _Active_begin() const noexcept {
             return _Block_iter_active{_Sent_block._Next};
         }

@@ -3672,8 +3672,111 @@ public:
         return _Count;
     }
 
+private:
+    template <class _Pr2>
+    constexpr void _Sort_buffered_direct(pointer _Buffer, _Pr2 _Pred) {
+        _Local_elems_backout _Backout{_Al, _Buffer}; // no release
+
+        // move elements to uninitialized buffer
+        const auto _Sent = _Myval._Sent();
+        for (auto _Blk = _Myval._Active_begin(); _Blk != _Sent; ++_Blk) {
+            _Myval._Visit_block_iter_n(
+                _Blk, _Lambdas::template _Copy_move_from_blk<_Lambdas::_Move | _Lambdas::_Uninit>(_Backout));
+        }
+
+        const auto _Buffer_lst = _Backout._Last;
+        _Bidi_container_inplace_sorter<pointer, _Pr2>::_Sort(_Buffer, _Buffer_lst, _Pred, _Al);
+
+        // move sorted elements back
+        for (auto _Blk = _Myval._Active_begin(); _Blk != _Sent; ++_Blk) {
+            _Myval._Visit_block_iter_n(
+                _Blk, _Lambdas::template _Copy_move_to_blk<_Lambdas::_Move | _Lambdas::_Init>(_Buffer));
+        }
+        _STL_INTERNAL_CHECK(_Buffer == _Buffer_lst);
+    }
+
+    struct _Indirect_sort_pair {
+        _Ty* _Elem;
+        _Indirect_sort_pair* _Old_pos;
+    };
+    template <class _Pr2>
+    constexpr void _Sort_buffered_indirect(_Indirect_sort_pair* _Buffer, _Pr2 _Pred) {
+        _Uninitialized_backout _Backout{_Buffer}; // no release
+        _RANGES for_each(
+            *this, [&_Backout](_Ty& _Elem) { _Backout._Emplace_back(_STD addressof(_Elem), _Backout._Last); });
+
+        const auto _Buffer_lst = _Backout._Last;
+        _STD sort(_Buffer, _Buffer_lst,
+            [_Pred](const auto& _Left, const auto& _Right) mutable { return _Pred(*_Left._Elem, *_Right._Elem); });
+
+        for (_Indirect_sort_pair* _Current = _Buffer; _Current != _Buffer_lst; ++_Current) {
+            if (_Current->_Old_pos != _Current) {
+                _Alloc_temporary2<_Alloc> _Temp(_Al, _STD move(*_Current->_Elem));
+                auto _Dst = _Current;
+                auto _Src = _Current->_Old_pos;
+
+                do {
+                    *_Dst->_Elem   = _STD move(*_Src->_Elem);
+                    _Dst           = _Src;
+                    _Src           = _Dst->_Old_pos;
+                    _Dst->_Old_pos = _Dst;
+                } while (_Src != _Current);
+
+                *_Dst->_Elem = _STD move(_Temp._Get_value());
+            }
+        }
+    }
+
+    // doesn't check triviality because non-trivial move/swap operations are usually inexpensive (e.g., std::unique_ptr)
+    static constexpr bool _Use_direct_sort = sizeof(_Ty) <= sizeof(_Indirect_sort_pair);
+
+public:
     template <class _Pr2 = less<_Ty>>
-    void sort(_Pr2 _Pred = _Pr2());
+    void sort(_Pr2 _Pred = _Pr2()) {
+        static_assert(
+            requires(const _Ty& _Val) {
+                { _Pred(_Val, _Val) } -> _Boolean_testable;
+            }, "comp must meet the requirements of BinaryPredicate (N5032 [hive.operations]/1).");
+        static_assert(is_swappable_v<_Ty>,
+            "hive<T, Allocator>::sort requires that T is Cpp17Swappable (N5032 [hive.operations]/13).");
+
+        if (_Myval._Size <= 1) {
+            return;
+        }
+
+        using _Passed_pr = decltype(_STD _Pass_fn(_Pred));
+
+        if (_Myval._Sent_block._Prev == _Myval._Sent_block._Next) {
+            _Block& _Blk = *_Myval._Active_begin();
+            if (_Blk._Full()) {
+                // single full block, sort as an array
+                _Bidi_container_inplace_sorter<_Local_ptr, _Passed_pr>::_Sort(
+                    _Local_ptr{_Blk._Data}, _Local_ptr{_Blk._Data + _Blk._Capacity}, _STD _Pass_fn(_Pred), _Al);
+                return;
+            }
+        }
+
+        using _Sort_t = conditional_t<_Use_direct_sort, _Ty, _Indirect_sort_pair>;
+
+        using _Alsort = _Maybe_rebind_alloc_t<_Alty, _Sort_t>;
+        _Alsort _Als(_Al);
+        _Alloc_construct_n_ptr _Buffer{_Als, _Myval._Size}; // no release
+
+        _TRY_BEGIN
+        _Buffer._Allocate();
+        _CATCH_ALL
+        const auto _Mydist = static_cast<difference_type>(_Myval._Size);
+        _Bidi_container_inplace_sorter<_Unchecked_iterator, _Passed_pr>::_Sort(
+            _Unchecked_begin(), _Unchecked_end(), _Mydist, _Mydist, _STD _Pass_fn(_Pred), _Al);
+        return;
+        _CATCH_END
+
+        if constexpr (_Use_direct_sort) {
+            _Sort_buffered_direct(_Buffer._Ptr, _STD _Pass_fn(_Pred));
+        } else {
+            _Sort_buffered_indirect(_STD to_address(_Buffer._Ptr), _STD _Pass_fn(_Pred));
+        }
+    }
 
     _NODISCARD iterator get_iterator(const_pointer _Ptr) noexcept {
         return static_cast<const hive*>(this)->get_iterator(_Ptr)._Mutable();

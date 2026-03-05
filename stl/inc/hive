@@ -2530,6 +2530,155 @@ private:
         _Block_iter_nonfull{_Myval._Sent()}._Splice_before(_Rtsent_ptr);
     }
 
+    // Replaces all _Count elements from _Sent into *this. Splices them back to *this if an exception is thrown.
+    // Will reuse nonfull blocks and reserved blocks.
+    constexpr void _Rebuild_n(size_type _Count, _Block& _Sent) {
+        if (_Count == 0) {
+            return;
+        }
+
+        struct _Rebuild_guard {
+            hive* _Hive;
+            _Block& _Sent;
+            constexpr ~_Rebuild_guard() noexcept {
+                if (_Hive != nullptr) {
+                    _Hive->_Splice_blocks(_Sent);
+                }
+            }
+        };
+        _Rebuild_guard _Guard{this, _Sent};
+
+        auto _Src_blk       = _Block_iter_active{_Sent._Next};
+        auto _Src_idx       = _Src_blk->_First_element();
+        const auto _Do_move = _Copy_move_elems_from<_Lambdas::_Move | _Lambdas::_Uninit>(_Src_blk, _Src_idx, *this);
+
+        // reuses nonfull blocks first
+        const auto _Mysent = _Myval._Sent();
+        for (auto _Nonfull = _Myval._Nonfull_begin(); _Nonfull != _Mysent;) {
+            const auto _Cnt = static_cast<_Block_size_t>(
+                (_STD min) (static_cast<size_type>(_Nonfull->_Capacity - _Nonfull->_Size), _Count));
+            _STL_INTERNAL_CHECK(_Cnt > 0);
+
+            _Nonfull->_Emplace_n(_Cnt, [&](_Union_ptr _Ptr, _Block_size_t _Len) {
+                _Local_unions_backout _Backout{_Al, _Ptr};
+                _Do_move(_Backout, _Len);
+                _Backout._Release();
+                _Myval._Size += _Len;
+            });
+
+            if (_Nonfull->_Full()) {
+                (_Nonfull++)._Remove_from_list();
+            } else {
+                _STL_INTERNAL_CHECK(_Count == _Cnt);
+            }
+            _Count -= _Cnt;
+
+            if (_Count == 0) {
+                _Guard._Hive = nullptr;
+                return;
+            }
+        }
+
+        _STL_INTERNAL_CHECK(_Count > 0);
+
+        const auto _Move_to_tmp_blk = [&](auto& _Dst) {
+            const auto _Cnt = static_cast<_Block_size_t>((_STD min) (static_cast<size_type>(_Dst._Capacity()), _Count));
+            _STL_INTERNAL_CHECK(_Cnt > 0);
+
+            _Do_move(_Dst, _Cnt);
+
+            _Myval._Size += _Cnt;
+            _Count -= _Cnt;
+        };
+
+        // then reserved blocks
+        while (_Myval._Reserved_first != nullptr) {
+            _STL_INTERNAL_CHECK(_Count > 0);
+            _Temp_reserved_block _Tmp_blk{*this, _Myval._Reserved_first};
+            _Move_to_tmp_blk(_Tmp_blk);
+
+            ++_Myval._Reserved_first;
+            _Activate_block(_Tmp_blk._Init_and_release());
+
+            if (_Count == 0) {
+                _Guard._Hive = nullptr;
+                return;
+            }
+        }
+
+        _STL_INTERNAL_CHECK(_Count > 0);
+        _Alloc_exact_n(_Count, [&](_Temp_new_block _Tmp_blk) {
+            _Move_to_tmp_blk(_Tmp_blk);
+            _Myval._Capacity += _Tmp_blk._Capacity();
+            _Activate_block(_Tmp_blk._Init_and_release());
+        });
+        _Guard._Hive = nullptr;
+    }
+
+    constexpr void _Rebuild_all() {
+        _Myval._Orphan_nonend();
+        _Myval._Orphan_end();
+        const auto _Mysent = _Myval._Sent();
+        _Block _Temp_sent  = _Block::_Sentinel(_Temp_sent);
+        _Block_iter_active{_Temp_sent._Next}._Splice_before(_Mysent);
+        _Block_iter_nonfull{_Temp_sent._Next_nonfull}._Splice_before(_Mysent);
+        _Rebuild_n(_Myval._Size, _Temp_sent);
+    }
+
+    // returns _Count for _Rebuild_n; _Orphan all iterators if any block is picked
+    template <class _Pr>
+    _NODISCARD constexpr size_type _Pick_active_for_rebuild(_Pr _Pred, _Block& _Dest_sent) noexcept {
+        const _Block_iter_active _Dst_active{_Dest_sent._Next};
+        const _Block_iter_nonfull _Dst_nonfull{_Dest_sent._Next_nonfull};
+
+        size_type _Count = 0;
+        const auto _Sent = _Myval._Sent();
+        for (auto _Cur_blk = _Myval._Active_begin(); _Cur_blk != _Sent;) {
+            if (_Pred(_Cur_blk)) {
+                const auto _Blk = _Cur_blk++;
+                _Myval._Orphan_block(*_Blk);
+
+                _Block_iter_active{_Blk}._Remove_from_list();
+                _Dst_active._Insert_before(_Blk);
+                if (!_Blk->_Full()) {
+                    _Block_iter_nonfull{_Blk}._Remove_from_list();
+                    _Dst_nonfull._Insert_before(_Blk);
+                }
+
+                _Count += _Blk->_Size;
+            } else {
+                // also renumber unchanged blocks to avoid order id overflow
+                _Cur_blk->_Order_id = static_cast<size_type>(_Cur_blk->_Prev->_Order_id + 1);
+                ++_Cur_blk;
+            }
+        }
+
+        if (_Count != 0) {
+            _Myval._Orphan_nonend();
+            _Myval._Orphan_end();
+        }
+        return _Count;
+    }
+
+    template <class _Pr>
+    constexpr void _Drop_reserved_if(_Pr _Pred) noexcept {
+        _Block_iter_reserved _Prev{nullptr};
+        for (auto _Cur = _Myval._Reserved_first; _Cur != nullptr;) {
+            if (_Pred(_Cur)) {
+                if (_Prev != nullptr) {
+                    _Prev->_Next = _Cur->_Next;
+                } else {
+                    ++_Myval._Reserved_first;
+                }
+                _Myval._Capacity -= _Cur->_Capacity;
+                _Dealloc_block(_Cur++);
+            } else {
+                _Prev = _Cur;
+                ++_Cur;
+            }
+        }
+    }
+
 public:
     void shrink_to_fit();
 

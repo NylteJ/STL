@@ -1059,6 +1059,318 @@ struct _Hive_local_ptr_provider {
                                                               // to `addressof(_Raw->_Value) + n` (which is actually UB)
 };
 
+template <class _Iter, class _Pr>
+class _Bidi_container_inplace_sorter {
+    // Provides sorting for bidirectional ranges. Constructs and destroys temporary objects via allocator, guarantees
+    // worst-case O(N log N) complexity, and allocates no extra memory.
+private:
+    _STL_INTERNAL_STATIC_ASSERT(bidirectional_iterator<_Iter>);
+    _STL_INTERNAL_STATIC_ASSERT(same_as<_Pr, decltype(_STD _Pass_fn(_STD declval<_Pr&>()))>);
+
+    using _Sorter = _Bidi_container_inplace_sorter;
+
+    using _Diff = iter_difference_t<_Iter>;
+
+    using _Partition_result = pair<_Iter, _Iter>;
+
+    template <class _Alloc>
+    struct _Fallback_rand {
+        _STL_INTERNAL_STATIC_ASSERT(random_access_iterator<_Iter>);
+
+        static constexpr void _Make_heap_unchecked(_Iter _First, _Iter _Last, _Pr _Pred, _Alloc& _Al) {
+            // make [_First, _Last) into a heap
+            _Diff _Bottom = _Last - _First;
+            for (_Diff _Hole = _Bottom >> 1; _Hole > 0;) { // shift for codegen
+                // reheap top half, bottom to top
+                --_Hole;
+                _Alloc_temporary2<_Alloc> _Val(_Al, _STD move(*(_First + _Hole)));
+                _STD _Pop_heap_hole_by_index(_First, _Hole, _Bottom, _STD move(_Val._Get_value()), _Pred);
+            }
+        }
+
+        static constexpr void _Pop_heap_unchecked(_Iter _First, _Iter _Last, _Pr _Pred, _Alloc& _Al) {
+            // pop *_First to *(_Last - 1) and reheap
+            if (2 <= _Last - _First) {
+                --_Last;
+                _Alloc_temporary2<_Alloc> _Val(_Al, _STD move(*_Last));
+                _STD _Pop_heap_hole_unchecked(_First, _Last, _Last, _STD move(_Val._Get_value()), _Pred);
+            }
+        }
+
+        static constexpr void _Sort_heap_unchecked(const _Iter _First, _Iter _Last, _Pr _Pred, _Alloc& _Al) {
+            // order heap by repeatedly popping
+            for (; _Last - _First >= 2; --_Last) {
+                _Fallback_rand::_Pop_heap_unchecked(_First, _Last, _Pred, _Al);
+            }
+        }
+    };
+
+    struct _Fallback_bidi {
+        static constexpr _Iter _Collect_medians_of_five(const _Iter& _First, _Diff _Median_count, _Pr _Pred) {
+            // collect the medians of five at the beginning of the range
+            _Iter _Med_out = _First;
+
+            _Iter _Rng5_0 = _First;
+            for (_Diff _Idx = 0; _Idx != _Median_count; ++_Idx) {
+                auto _Rng5_1       = _STD _Next_iter(_Rng5_0);
+                const auto _Rng5_2 = _STD _Next_iter(_Rng5_1);
+                const auto _Rng5_3 = _STD _Next_iter(_Rng5_2);
+                const auto _Rng5_4 = _STD _Next_iter(_Rng5_3);
+
+                _STD _Med3_unchecked(_Rng5_0, _Rng5_1, _Rng5_2, _Pred);
+                if (_DEBUG_LT_PRED(_Pred, *_Rng5_4, *_Rng5_3)) {
+                    swap(*_Rng5_4, *_Rng5_3); // intentional ADL
+                }
+
+                // now 0 <= 1 <= 2, and 3 <= 4
+                auto& _Guess = _Rng5_1;
+                if (_DEBUG_LT_PRED(_Pred, *_Rng5_4, *_Rng5_1)) { // 4 < 1
+                    if (_DEBUG_LT_PRED(_Pred, *_Rng5_0, *_Rng5_4)) { // 0 < 4 < 1
+                        _Guess = _Rng5_4;
+                    } else { // 4 <= 0
+                        _Guess = _Rng5_0;
+                    }
+                } else if (_DEBUG_LT_PRED(_Pred, *_Rng5_1, *_Rng5_3)) { // 1 < 3
+                    if (_DEBUG_LT_PRED(_Pred, *_Rng5_2, *_Rng5_3)) { // 2 < 3
+                        _Guess = _Rng5_2;
+                    } else { // 1 < 3 <= 2
+                        _Guess = _Rng5_3;
+                    }
+                }
+
+                swap(*_Guess, *_Med_out); // intentional ADL
+
+                ++_Med_out;
+                _Rng5_0 = _STD _Next_iter(_Rng5_4);
+            }
+
+            return _Med_out;
+        }
+
+        template <class _Alloc>
+        static constexpr void _Nth_element_median_of_medians(
+            _Iter _First, const _Iter& _Nth, _Iter _Last, _Diff _Length, _Pr _Pred, _Alloc& _Al) {
+            for (;;) {
+                _STL_INTERNAL_CHECK(_RANGES distance(_First, _Last) == _Length);
+
+                if (_Length <= _ISORT_MAX) {
+                    _Sorter::_Insertion_sort_unchecked(_First, _Last, _Pred, _Al); // sort any remainder
+                    return;
+                }
+
+                // collect the medians of five at the beginning of the range
+                const auto _Median_count = static_cast<_Diff>(_Length / 5);
+                const _Iter _Median_last = _Fallback_bidi::_Collect_medians_of_five(_First, _Median_count, _Pred);
+
+                // find the median of medians
+                const auto _Median_mid = _RANGES next(_First, static_cast<_Diff>(_Median_count >> 1));
+                _Fallback_bidi::_Nth_element_median_of_medians(
+                    _First, _Median_mid, _Median_last, _Median_count, _Pred, _Al);
+
+                // The medians before and after _Median_mid are
+                // less-equal and greater-equal _Median_mid, respectively.
+                // Move the ones after _Median_mid near _Last and then partition
+                // the elements between the medians at front and back by the pivot _Median_mid
+                // so that they do not have to be considered or moved in the partitioning pass.
+                _Iter _Median_greater_first = _Last;
+                {
+                    // swap [_Median_mid + 1, _Median_last) with [..., _Last)
+                    const auto _First1 = _STD _Next_iter(_Median_mid);
+                    auto _Last1        = _Median_last;
+                    auto& _Last2       = _Median_greater_first;
+                    while (_First1 != _Last1) {
+                        swap(*--_Last1, *--_Last2); // intentional ADL
+                    }
+                }
+                _STL_INTERNAL_CHECK(
+                    _RANGES distance(_Median_greater_first, _Last) == _RANGES distance(_Median_mid, _Median_last) - 1);
+
+                // Swap the median of medians to the middle
+                // to reduce the number of times it will be moved by the partition function.
+                const auto _Middle = _RANGES next(_First, static_cast<_Diff>(_Length >> 1));
+                swap(*_Median_mid, *_Middle); // intentional ADL
+
+                const auto _Mid =
+                    _STD _Partition_by_pivot_unchecked(_Median_mid, _Middle, _Median_greater_first, _Pred);
+
+                if (_Mid.second <= _Nth) {
+                    _First = _Mid.second;
+                } else if (_Mid.first <= _Nth) {
+                    return; // _Nth is in the subrange of elements equal to the pivot; done
+                } else {
+                    _Last = _Mid.first;
+                }
+                _Length = _RANGES distance(_First, _Last);
+            }
+        }
+
+        template <class _Alloc>
+        static constexpr void _Nth_element_unchecked(
+            _Iter _First, const _Iter& _Nth, _Iter _Last, _Diff _Length, _Pr _Pred, _Alloc& _Al) {
+            auto _Ideal = _Length;
+
+            for (;;) {
+                _STL_INTERNAL_CHECK(_RANGES distance(_First, _Last) == _Length);
+
+                if (_Length <= _ISORT_MAX) {
+                    _Sorter::_Insertion_sort_unchecked(_First, _Last, _Pred, _Al); // sort any remainder
+                    return;
+                }
+
+                if (_Ideal < (_Length >> 1)) {
+                    // fall back to medians-of-medians-of-five algorithm to guarantee O(n) runtime performance
+                    _Fallback_bidi::_Nth_element_median_of_medians(_First, _Nth, _Last, _Length, _Pred, _Al);
+                    return;
+                }
+
+                const auto _Mid = _Sorter::_Partition_by_median_guess_unchecked(_First, _Last, _Length, _Pred);
+
+                if (_Mid.second <= _Nth) {
+                    _First = _Mid.second;
+                } else if (_Mid.first <= _Nth) {
+                    return; // _Nth is in the subrange of elements equal to the pivot; done
+                } else {
+                    _Last = _Mid.first;
+                }
+                _Length = _RANGES distance(_First, _Last);
+
+                // processed range should be reduced by 25% per iteration on average
+                _Ideal = (_Ideal >> 1) + (_Ideal >> 2);
+            }
+        }
+
+        template <class _Alloc>
+        static constexpr void _Guess_median_median_of_medians(
+            const _Iter& _First, const _Iter& _Mid, _Diff _Length, _Pr _Pred, _Alloc& _Al) {
+            const auto _Median_count = static_cast<_Diff>(_Length / 5);
+            const _Iter _Median_last = _Fallback_bidi::_Collect_medians_of_five(_First, _Median_count, _Pred);
+
+            const auto _Median_mid = _RANGES next(_First, static_cast<_Diff>(_Median_count >> 1));
+            _Fallback_bidi::_Nth_element_unchecked(_First, _Median_mid, _Median_last, _Median_count, _Pred, _Al);
+
+            swap(*_Median_mid, *_Mid); // intentional ADL
+        }
+
+        template <class _Alloc>
+        _NODISCARD static constexpr _Partition_result _Partition_by_median_guess_unchecked(
+            const _Iter& _First, const _Iter& _Last, _Diff _Count, _Pr _Pred, _Alloc& _Al) {
+            _STL_INTERNAL_CHECK(_RANGES distance(_First, _Last) == _Count);
+            // partition [_First, _Last)
+            _Iter _Mid = _RANGES next(_First, static_cast<_Diff>(_Count >> 1)); // shift for codegen
+            _Fallback_bidi::_Guess_median_median_of_medians(_First, _Mid, _Count, _Pred, _Al);
+
+            return _STD _Partition_by_pivot_unchecked(_First, _Mid, _Last, _Pred);
+        }
+    };
+
+    static constexpr void _Guess_median_unchecked(
+        const _Iter& _First, const _Iter& _Mid, const _Iter& _Last, _Diff _Count, _Pr _Pred) {
+        // sort median element to middle
+        if (40 < _Count) { // Tukey's ninther
+            const auto _Step =
+                static_cast<_Diff>((_Count + 1) >> 3); // +1 can't overflow because range was made inclusive in caller
+
+            const auto _First_plus_step  = _RANGES next(_First, _Step);
+            const auto _First_plus_2step = _RANGES next(_First_plus_step, _Step);
+            const auto _Mid_plus_step    = _RANGES next(_Mid, _Step);
+            const auto _Mid_minus_step   = _RANGES prev(_Mid, _Step);
+            const auto _Last_minus_step  = _RANGES prev(_Last, _Step);
+            const auto _Last_minus_2step = _RANGES prev(_Last_minus_step, _Step);
+
+            _STD _Med3_unchecked(_First, _First_plus_step, _First_plus_2step, _Pred);
+            _STD _Med3_unchecked(_Mid_minus_step, _Mid, _Mid_plus_step, _Pred);
+            _STD _Med3_unchecked(_Last_minus_2step, _Last_minus_step, _Last, _Pred);
+            _STD _Med3_unchecked(_First_plus_step, _Mid, _Last_minus_step, _Pred);
+        } else {
+            _STD _Med3_unchecked(_First, _Mid, _Last, _Pred);
+        }
+    }
+
+    _NODISCARD static constexpr _Partition_result _Partition_by_median_guess_unchecked(
+        const _Iter& _First, const _Iter& _Last, _Diff _Count, _Pr _Pred) {
+        // partition [_First, _Last)
+        _Iter _Mid = _RANGES next(_First, static_cast<_Diff>(_Count >> 1)); // shift for codegen
+        _Sorter::_Guess_median_unchecked(_First, _Mid, _STD _Prev_iter(_Last), static_cast<_Diff>(_Count - 1), _Pred);
+
+        return _STD _Partition_by_pivot_unchecked(_First, _Mid, _Last, _Pred);
+    }
+
+    template <class _Alloc>
+    static constexpr _Iter _Insertion_sort_unchecked(const _Iter& _First, const _Iter& _Last, _Pr _Pred, _Alloc& _Al) {
+        // insertion sort [_First, _Last)
+        if (_First != _Last) {
+            for (_Iter _Mid = _First; ++_Mid != _Last;) { // order next element
+                _Iter _Hole = _Mid;
+                _Alloc_temporary2<_Alloc> _Val(_Al, _STD move(*_Mid));
+
+                if (_DEBUG_LT_PRED(_Pred, _Val._Get_value(), *_First)) { // found new earliest element, move to front
+                    _STD _Move_backward_unchecked(_First, _Mid, ++_Hole);
+                    *_First = _STD move(_Val._Get_value());
+                } else { // look for insertion point after first
+                    for (_Iter _Prev = _Hole; _DEBUG_LT_PRED(_Pred, _Val._Get_value(), *--_Prev); _Hole = _Prev) {
+                        *_Hole = _STD move(*_Prev); // move hole down
+                    }
+
+                    *_Hole = _STD move(_Val._Get_value()); // insert element in hole
+                }
+            }
+        }
+
+        return _Last;
+    }
+
+public:
+    template <class _Alloc>
+    static constexpr void _Sort(_Iter _First, _Iter _Last, _Diff _Count, _Diff _Ideal, _Pr _Pred, _Alloc& _Al) {
+        // see also _Sort_unchecked
+        for (;;) {
+            _STL_INTERNAL_CHECK(_Count == _RANGES distance(_First, _Last));
+
+            if (_Count <= _ISORT_MAX) { // small
+                _Sorter::_Insertion_sort_unchecked(_First, _Last, _Pred, _Al);
+                return;
+            }
+
+            _Partition_result _Mid;
+            if (_Ideal <= 0) {
+                if constexpr (random_access_iterator<_Iter>) { // heap sort if too many divisions
+                    _Fallback_rand<_Alloc>::_Make_heap_unchecked(_First, _Last, _Pred, _Al);
+                    _Fallback_rand<_Alloc>::_Sort_heap_unchecked(_First, _Last, _Pred, _Al);
+                    return;
+                } else { // pick pivot by median-of-medians if too many divisions
+                    _Mid = _Fallback_bidi::_Partition_by_median_guess_unchecked(_First, _Last, _Count, _Pred, _Al);
+                }
+            } else {
+                _Mid = _Sorter::_Partition_by_median_guess_unchecked(_First, _Last, _Count, _Pred);
+            }
+
+            // divide and conquer by quicksort
+
+            _Ideal = static_cast<_Diff>((_Ideal >> 1) + (_Ideal >> 2)); // allow 1.5 log2(N) divisions
+
+            const auto _First_half_dist  = _RANGES distance(_First, _Mid.first);
+            const auto _Second_half_dist = _RANGES distance(_Mid.second, _Last);
+            if (_First_half_dist < _Second_half_dist) { // loop on second half
+                _Sorter::_Sort(_First, _Mid.first, _First_half_dist, _Ideal, _Pred, _Al);
+                _First = _Mid.second;
+                _Count = _Second_half_dist;
+            } else { // loop on first half
+                _Sorter::_Sort(_Mid.second, _Last, _Second_half_dist, _Ideal, _Pred, _Al);
+                _Last  = _Mid.first;
+                _Count = _First_half_dist;
+            }
+        }
+    }
+
+    template <class _Alloc>
+    static constexpr void _Sort(_Iter _First, _Iter _Last, _Pr _Pred, _Alloc& _Al)
+        requires sized_sentinel_for<_Iter, _Iter>
+    {
+        const auto _Dist = _Last - _First;
+        _Sorter::_Sort(_STD move(_First), _STD move(_Last), _Dist, _Dist, _Pred, _Al);
+    }
+};
+
 template <class _BlockSizeT, class _Ty>
 class _Hive_lambdas {
 public:

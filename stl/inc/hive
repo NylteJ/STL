@@ -1772,12 +1772,52 @@ private:
 
     template <_Mode_t _Mode, class _SrcIt, class _DstIt>
     static constexpr void _Do_copy_move(_SrcIt& _Src, _Block_size_t _Cnt, _DstIt& _Dst) {
+        constexpr bool _Rnd_src = random_access_iterator<_SrcIt>;
+        constexpr bool _Rnd_dst = random_access_iterator<_DstIt>;
+
+        const auto& _USrc = [&] -> decltype(auto) {
+            if constexpr (_Treat_union_as_ty && _Hive_local_ptr<_SrcIt>) {
+                return _STD to_address(_Src);
+            } else {
+                return _Src;
+            }
+        }();
+        const auto& _UDst = [&] -> decltype(auto) {
+            if constexpr (_Treat_union_as_ty && (_Mode & _Uninit)) {
+                return _Dst._Get_ptr();
+            } else if constexpr (_Treat_union_as_ty && _Hive_local_ptr<_DstIt>) {
+                return _STD to_address(_Dst);
+            } else {
+                return _Dst;
+            }
+        }();
+
         _STL_INTERNAL_CHECK(_Cnt > 0);
-        do {
-            _Do_output<_Mode>(_Dst, *_Src);
-            ++_Src;
-            --_Cnt;
-        } while (_Cnt != 0);
+
+        if constexpr ((_Mode & _Uninit) && _Treat_union_as_ty && _Rnd_src) {
+            auto&& _Al = _Dst._Get_al();
+            if constexpr (_Mode & _Move) {
+                _STD _Uninitialized_move(_USrc, _USrc + _Cnt, _UDst, _Al);
+            } else {
+                _STD _Uninitialized_copy_n(_USrc, _Cnt, _UDst, _Al);
+            }
+            _Dst._Advance(_Cnt);
+            _Src += static_cast<iter_difference_t<_SrcIt>>(_Cnt);
+        } else if constexpr ((_Mode & _Init) && _Rnd_src && _Rnd_dst) {
+            if constexpr (_Mode & _Move) {
+                _RANGES move(_USrc, _USrc + _Cnt, _UDst);
+            } else {
+                _RANGES copy_n(_USrc, _Cnt, _UDst);
+            }
+            _Dst += static_cast<iter_difference_t<_DstIt>>(_Cnt);
+            _Src += static_cast<iter_difference_t<_SrcIt>>(_Cnt);
+        } else {
+            do {
+                _Do_output<_Mode>(_Dst, *_Src);
+                ++_Src;
+                --_Cnt;
+            } while (_Cnt != 0);
+        }
     }
 
 public:
@@ -1786,10 +1826,20 @@ public:
         _STL_INTERNAL_STATIC_ASSERT(!(_Mode & (_Copy | _Move)));
         return [&]<class _DstIt>(_DstIt&& _Dest, _Block_size_t _Cnt) {
             _STL_INTERNAL_CHECK(_Cnt > 0);
-            do {
-                _Do_output<_Mode>(_Dest, _Val);
-                --_Cnt;
-            } while (_Cnt != 0);
+            if constexpr (_Treat_union_as_ty && ((_Mode & _Uninit) || _Hive_local_ptr<_DstIt>) ) {
+                if constexpr (_Mode & _Uninit) {
+                    _STD _Uninitialized_fill_n(_Dest._Get_ptr(), _Cnt, _Val, _Dest._Get_al());
+                    _Dest._Advance(_Cnt);
+                } else {
+                    _RANGES fill_n(_STD to_address(_Dest), _Cnt, _Val);
+                    _Dest += _Cnt;
+                }
+            } else {
+                do {
+                    _Do_output<_Mode>(_Dest, _Val);
+                    --_Cnt;
+                } while (_Cnt != 0);
+            }
         };
     }
 
@@ -1807,11 +1857,18 @@ public:
         return [&]<class _SrcIt>(_SrcIt _Src_fst, const _SrcIt& _Src_lst) {
             _STL_INTERNAL_CHECK(_Src_fst != _Src_lst);
             _STL_INTERNAL_CHECK(_Dst_cnt > 0);
-            do {
-                _Do_output<_Mode>(_Dst, *_Src_fst);
-                ++_Src_fst;
-                --_Dst_cnt;
-            } while (_Src_fst != _Src_lst && _Dst_cnt != 0);
+            if constexpr (_Hive_local_ptr<_SrcIt>) {
+                const auto _Src_cnt = static_cast<_Block_size_t>(_Src_lst - _Src_fst);
+                const auto _Cnt     = (_STD min) (_Src_cnt, _Dst_cnt);
+                _Do_copy_move<_Mode>(_Src_fst, _Cnt, _Dst);
+                _Dst_cnt -= _Cnt;
+            } else {
+                do {
+                    _Do_output<_Mode>(_Dst, *_Src_fst);
+                    ++_Src_fst;
+                    --_Dst_cnt;
+                } while (_Src_fst != _Src_lst && _Dst_cnt != 0);
+            }
             return _Src_fst;
         };
     }
@@ -1844,7 +1901,12 @@ struct _Hive_val_provider {
 
         static constexpr bool _Bitset_mode = _Block::_Bitset_mode;
 
-        static constexpr bool _Treat_union_as_ty = /* TODO */;
+        // FIXME: According to N5032 [expr.add]/6, this optimization is technically UB (no issues observed so far),
+        //        because it performs pointer arithmetic on _Ty pointers within a _Union array.
+        //        However, enabling it allows us to reuse existing contiguous memory optimizations, yielding up to ~5x
+        //        speedups and inheriting future improvements automatically.
+        //        Not sure whether we should keep it...
+        static constexpr bool _Treat_union_as_ty = sizeof(_Union) == sizeof(value_type);
 
         using _Iters_provider            = _Hive_iterators_provider<_Val>;
         using iterator                   = _Iters_provider::iterator;
@@ -2450,6 +2512,16 @@ private:
             _First = _Last;
         }
 
+        _NODISCARD constexpr pointer _Get_ptr() const noexcept {
+            return pointer_traits<pointer>::pointer_to(*_Last);
+        }
+        _NODISCARD constexpr _Alty& _Get_al() const noexcept {
+            return _Al;
+        }
+        constexpr void _Advance(_Block_size_t _Off) noexcept {
+            _Last += _Off;
+        }
+
         _Alty& _Al;
         _Iter _First;
         _Iter _Last;
@@ -2485,6 +2557,17 @@ private:
 
         _NODISCARD constexpr _Block_size_t _Capacity() const noexcept {
             return _Blk->_Capacity;
+        }
+
+        _NODISCARD constexpr pointer _Get_ptr() const noexcept {
+            _STL_INTERNAL_CHECK(_Last - _Blk->_Data < _Blk->_Capacity);
+            return pointer_traits<pointer>::pointer_to(*_Last);
+        }
+        _NODISCARD constexpr _Alty& _Get_al() const noexcept {
+            return _Hive._Al;
+        }
+        constexpr void _Advance(_Block_size_t _Off) noexcept {
+            _Last += _Off;
         }
 
         // except order id
@@ -2956,10 +3039,15 @@ public:
         _Verify_limits(_Block_limits);
         _Construct_n(_Count, [](_Temp_new_block& _Blk, _Block_size_t _Cnt) static {
             _STL_INTERNAL_CHECK(_Cnt > 0);
-            do {
-                _Blk._Emplace();
-                --_Cnt;
-            } while (_Cnt != 0);
+            if constexpr (_Treat_union_as_ty) {
+                _STD _Uninitialized_value_construct_n(_Blk._Get_ptr(), _Cnt, _Blk._Get_al());
+                _Blk._Advance(_Cnt);
+            } else {
+                do {
+                    _Blk._Emplace();
+                    --_Cnt;
+                } while (_Cnt != 0);
+            }
         });
     }
 

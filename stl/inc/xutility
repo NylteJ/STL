@@ -1811,6 +1811,16 @@ constexpr bool _Is_hive_iterator = false;
 template <class _It, bool _RequiresMutable = false>
 constexpr bool _Is_hive_riterator = false;
 
+struct _Hive_algorithms {
+    template <class _HiveIt, class _Diff>
+    static constexpr void _Advance(_HiveIt& _Where, _Diff _Offset);
+    template <class _HiveIt, class _HiveSe>
+    static constexpr _Iter_diff_t<_HiveIt> _Distance(_HiveIt _First, const _HiveSe& _Last);
+
+    template <class _HiveIt, class _HiveSe, class _Fn>
+    static constexpr _HiveIt _For_each(_HiveIt _UFirst, const _HiveSe& _ULast, _Fn _Func);
+};
+
 // from <iterator>
 _EXPORT_STD template <class _InIt, class _Diff>
 _CONSTEXPR17 void advance(_InIt& _Where, _Diff _Off) { // increment iterator by offset

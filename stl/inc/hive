@@ -1595,6 +1595,44 @@ struct _Hive_val_provider {
             }
         }
 
+        template <class _ValTy>
+        _NODISCARD _ValTy* _Find_buffer_inplace(size_t _Count) const noexcept {
+            constexpr size_t _Max_align_padding =
+                alignof(_ValTy) > alignof(_Union) ? (alignof(_ValTy) - alignof(_Union)) : 0uz;
+
+            constexpr auto _Convert_result = [](_Union_ptr _Ptr) static {
+                void* _Raw = _STD to_address(_Ptr);
+                if constexpr (_Max_align_padding > 0) {
+                    size_t _Dummy_space = _STD _Max_limit<size_t>();
+                    _STD align(alignof(_ValTy), 0, _Raw, _Dummy_space);
+                }
+                _STL_INTERNAL_CHECK(reinterpret_cast<uintptr_t>(_Raw) % alignof(_ValTy) == 0);
+                return reinterpret_cast<_ValTy*>(_Raw);
+            };
+
+            const size_t _Required_bytes    = _Count * sizeof(_ValTy) + _Max_align_padding;
+            const size_t _Required_capacity = (_Required_bytes + (sizeof(_Union) - 1)) / sizeof(_Union);
+
+            // find free space past the last element
+            if (_Size != 0) {
+                const auto& _Blk                    = *_Sent_block._Prev;
+                const _Block_size_t _Space_past_end = _Blk._Skip[_Blk._Capacity - 1];
+
+                // skip the last union to preserve the free list node or skip count
+                if (_Space_past_end >= _Required_capacity + 1) {
+                    return _Convert_result(_Blk._Data + _Blk._Capacity - _Space_past_end);
+                }
+            }
+
+            // find free space in the first (and usually largest) reserved block
+            const auto _Reserved = _Reserved_first;
+            if (_Reserved != nullptr && _Reserved->_Capacity >= _Required_capacity) {
+                return _Convert_result(_Reserved->_Data);
+            }
+
+            return nullptr;
+        }
+
 #if _ITERATOR_DEBUG_LEVEL == 0
         constexpr void _Orphan_block(const _Block&) const noexcept {}
         constexpr void _Orphan_range(const _Block&, _Block_size_t, _Block_size_t) const noexcept {}
@@ -3757,6 +3795,18 @@ public:
         }
 
         using _Sort_t = conditional_t<_Use_direct_sort, _Ty, _Indirect_sort_pair>;
+
+        if !consteval {
+            const auto _Buffer = _Myval.template _Find_buffer_inplace<_Sort_t>(_Myval._Size);
+            if (_Buffer != nullptr) {
+                if constexpr (_Use_direct_sort) {
+                    _Sort_buffered_direct(_STD _Refancy<pointer>(_Buffer), _STD _Pass_fn(_Pred));
+                } else {
+                    _Sort_buffered_indirect(_Buffer, _STD _Pass_fn(_Pred));
+                }
+                return;
+            }
+        }
 
         using _Alsort = _Maybe_rebind_alloc_t<_Alty, _Sort_t>;
         _Alsort _Als(_Al);

@@ -2391,7 +2391,7 @@ public:
             al_1, limits_counts_mat);
     }
 
-    // also including three-way comparison
+    // also including `advance` and three-way comparison
     void test_iteration() {
         hive_matrix(
             [](hive_t& cont) {
@@ -2400,7 +2400,17 @@ public:
                 const auto half_diff = static_cast<diff_t>(cont_diff / 2);
 
                 const auto test = [&]<class First, class Last>(const First first, const Last last) {
-                    auto iter = next(first, cont_diff); // TODO: this will make more sense in the future
+                    auto iter = first;
+                    advance(iter, cont_diff);
+                    assert(iter == last);
+                    advance(iter, -cont_diff);
+                    assert(iter == first);
+                    ranges::advance(iter, cont_diff);
+                    assert(iter == last);
+                    ranges::advance(iter, -cont_diff);
+                    assert(iter == first);
+                    advance(iter, cont_size);
+                    assert(iter == last);
 
                     const auto middle = next(first, half_diff);
 
@@ -2442,6 +2452,11 @@ public:
                     }
                     assert(iter == last);
                     assert((iter <=> last) == strong_ordering::equal);
+
+                    assert(prev(last, cont_diff) == first);
+                    assert(next(first, cont_diff) == last);
+                    assert(ranges::prev(last, cont_diff) == first);
+                    assert(ranges::next(first, cont_diff) == last);
                 };
 
                 test(cont.begin(), cont.end());
@@ -2458,6 +2473,8 @@ public:
 
         assert(iter_t{} == iter_t{});
         assert((citer_t{} <=> iter_t{}) == strong_ordering::equal);
+        assert(next(iter_t{}, 0) == iter_t{});
+        assert(ranges::next(riter_t{}, 0) == riter_t{});
     }
 
     void test_EH()

@@ -1755,6 +1755,122 @@ struct _Hive_val_provider {
     };
 };
 
+template <class _HiveIt, class _Diff>
+constexpr void _Hive_algorithms::_Advance(_HiveIt& _Where, _Diff _Offset) {
+    _STL_INTERNAL_STATIC_ASSERT(_Is_hive_iterator<_HiveIt>);
+
+    constexpr bool _Should_check = _ITERATOR_DEBUG_LEVEL != 0 && _Unwrappable_v<_HiveIt>;
+
+    if (_Offset == 0) {
+        return;
+    }
+
+    if constexpr (_Should_check) {
+        _STL_VERIFY(!_Where._Is_value_initialized(), "cannot advance value-initialized hive iterator");
+        _STL_VERIFY(!_Where._Is_invalid(), "cannot advance invalid hive iterator");
+    }
+
+    using _Diff_t    = iter_difference_t<_HiveIt>;
+    using _Scary_val = _HiveIt::_Hive_scary_val;
+
+    if constexpr (_Should_check) {
+        _STL_VERIFY(_STD in_range<_Diff_t>(_Offset), "hive advance offset out of range");
+    }
+    auto _Off = static_cast<_Diff_t>(_Offset);
+
+    if (_Off > 0) {
+        if constexpr (_Should_check) {
+            _STL_VERIFY(!_Where._Is_end(), "cannot increment end hive iterator");
+        }
+
+        if (_Where._Index != _Where._Blk->_First_element()) {
+            // iterator not at beginning of current block
+            _Where._Index = _Scary_val::_With_block_iters(
+                _Where._Blk, _Where._Index, _Where._Blk->_Capacity, [&_Off](auto _Where_local, const auto& _Blk_last) {
+                    _Off = static_cast<_Diff_t>(_RANGES advance(_Where_local, _Off, _Blk_last));
+                    return _Where_local;
+                });
+
+            if (_Where._Index == _Where._Blk->_Capacity) {
+                ++_Where._Blk;
+                if (_Off == 0) {
+                    _Where._Index = _Where._Blk->_First_element();
+                    _Where._Adopt(_STD to_address(_Where._Blk._Ptr()));
+                    return;
+                }
+            } else {
+                if (_Off == 0) {
+                    return;
+                }
+            }
+        }
+        _STL_INTERNAL_CHECK(_Off > 0);
+
+        if constexpr (_Should_check) {
+            _STL_VERIFY(!_Where._Blk->_Is_sent(), "cannot advance hive iterator past the end");
+        }
+
+        // Now the iterator is at the beginning of the block, so we can skip an entire block at once.
+        while (_Off >= _Where._Blk->_Size) {
+            _Off -= _Where._Blk->_Size;
+            ++_Where._Blk;
+            if (_Off == 0) {
+                _Where._Index = _Where._Blk->_First_element();
+                _Where._Adopt(_STD to_address(_Where._Blk._Ptr()));
+                return;
+            }
+
+            if constexpr (_Should_check) {
+                _STL_VERIFY(!_Where._Blk->_Is_sent(), "cannot advance hive iterator past the end");
+            }
+        }
+        _STL_INTERNAL_CHECK(_Off > 0);
+
+        // the tail block
+        _Where._Index = _Scary_val::_With_block_iter(_Where._Blk, _Where._Blk->_First_element(),
+            [_Off](auto _Where_local) { return _RANGES next(_Where_local, _Off); });
+        _Where._Adopt(_STD to_address(_Where._Blk._Ptr()));
+    } else {
+        if constexpr (_Should_check) {
+            _STL_VERIFY(!_Where._Is_begin(), "cannot decrement begin hive iterator");
+        }
+
+        if (const auto _First_elem = _Where._Blk->_First_element(); _Where._Index != _First_elem) {
+            // iterator not at beginning of current block
+            _Where._Index = _Scary_val::_With_block_iters(
+                _Where._Blk, _Where._Index, _First_elem, [&_Off](auto _Where_local, const auto& _Blk_first) {
+                    _Off = static_cast<_Diff_t>(_RANGES advance(_Where_local, _Off, _Blk_first));
+                    return _Where_local;
+                });
+            if (_Off == 0) {
+                return;
+            }
+        }
+        _STL_INTERNAL_CHECK(_Off < 0);
+
+        if constexpr (_Should_check) {
+            _STL_VERIFY(!_Where._Is_first_block(), "cannot decrement hive iterator before begin");
+        }
+        --_Where._Blk;
+
+        // Now the iterator is at the beginning of the next block, which is equivalent to the end of the current block,
+        // so we can skip an entire block at once.
+        while (-_Off > _Where._Blk->_Size) {
+            _Off += _Where._Blk->_Size;
+            if constexpr (_Should_check) {
+                _STL_VERIFY(!_Where._Is_first_block(), "cannot decrement hive iterator before begin");
+            }
+            --_Where._Blk;
+        }
+        _STL_INTERNAL_CHECK(_Off < 0);
+
+        // the head block
+        _Where._Index = _Scary_val::_With_block_iter(_Where._Blk, _Where._Blk->_Capacity,
+            [_Off](auto _Where_local) { return _RANGES next(_Where_local, _Off); });
+        _Where._Adopt(_STD to_address(_Where._Blk._Ptr()));
+    }
+}
+
 template <class _Ty, class _Alloc>
 class hive {
 private:

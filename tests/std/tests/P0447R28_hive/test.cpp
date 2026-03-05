@@ -2484,6 +2484,67 @@ public:
         assert(ranges::distance(riter_t{}, riter_t{}) == 0);
     }
 
+    void test_for_each() {
+        const auto test = []<class SubRng>(SubRng&& sub_rng, const auto& except_rng) {
+            auto except_fst       = except_rng.begin();
+            const auto except_lst = except_rng.end();
+
+            using excepted_ref = ranges::range_reference_t<SubRng>;
+
+            const auto func = [&]<class ValTy>(ValTy&& val) {
+                // cannot use static_assert here because ranges::for_each requires arguments to be
+                // indirectly_unary_invocable, which requires `invocable<F&, /*indirect-value-t*/<I>>`
+                assert((is_same_v<ValTy&&, excepted_ref>) );
+
+                assert(except_fst != except_lst);
+                assert(unwrap(val) == *except_fst);
+                ++except_fst;
+            };
+
+            if constexpr (ranges::common_range<SubRng>) {
+                for_each(sub_rng.begin(), sub_rng.end(), func);
+                assert(except_fst == except_lst);
+                except_fst = except_rng.begin();
+            }
+
+            const auto ret = ranges::for_each(sub_rng, func);
+            assert(ret.in == sub_rng.end());
+            assert(except_fst == except_lst);
+        };
+
+        hive_matrix(
+            [&](hive_t& cont) {
+                const auto except = unwrap_to_vec(cont);
+
+                test(cont, except);
+                test(ranges::subrange{cont.cbegin(), cont.cend()}, except);
+                test(ranges::subrange{cont.begin(), cont.cend()}, except);
+                test(ranges::subrange{cont.cbegin(), cont.end()}, except);
+
+                if (!cont.empty()) {
+                    const auto subrng_begin =
+                        static_cast<diff_t>(uniform_int_distribution{0uz, except.size() - 1uz}(rand_engine));
+                    const auto subrng_end =
+                        static_cast<diff_t>(uniform_int_distribution{subrng_begin + 1uz, except.size()}(rand_engine));
+
+                    const auto sub_except = span(except.data() + subrng_begin, except.data() + subrng_end);
+
+                    const iter_t first   = next(cont.begin(), subrng_begin);
+                    const iter_t last    = next(cont.begin(), subrng_end);
+                    const citer_t cfirst = first;
+                    const citer_t clast  = last;
+
+                    test(ranges::subrange{first, last}, sub_except);
+                    test(ranges::subrange{cfirst, clast}, sub_except);
+                    test(ranges::subrange{first, clast}, sub_except);
+                    test(ranges::subrange{cfirst, last}, sub_except);
+                }
+            },
+            al_1, limits_counts_mat);
+
+        test(ranges::subrange{iter_t{}, iter_t{}}, views::empty<raw_value_t>);
+    }
+
     void test_EH()
         requires (EH_al && EH_wrapper);
 
@@ -2505,6 +2566,8 @@ public:
         test_unique();
         test_get_iterator();
         test_iteration();
+
+        test_for_each();
 
         DO_IF_VALID(test_EH());
     }

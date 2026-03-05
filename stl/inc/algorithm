@@ -712,8 +712,13 @@ _CONSTEXPR20 _Fn for_each(_InIt _First, _InIt _Last, _Fn _Func) { // perform fun
     _STD _Adl_verify_range(_First, _Last);
     auto _UFirst      = _STD _Get_unwrapped(_First);
     const auto _ULast = _STD _Get_unwrapped(_Last);
-    for (; _UFirst != _ULast; ++_UFirst) {
-        _Func(*_UFirst);
+
+    if constexpr (_Is_hive_iterator<decltype(_UFirst)>) {
+        _Hive_algorithms::_For_each(_UFirst, _ULast, _STD _Pass_fn(_Func));
+    } else {
+        for (; _UFirst != _ULast; ++_UFirst) {
+            _Func(*_UFirst);
+        }
     }
 
     return _Func;
@@ -785,8 +790,13 @@ namespace ranges {
             _STL_INTERNAL_STATIC_ASSERT(sentinel_for<_Se, _It>);
             _STL_INTERNAL_STATIC_ASSERT(indirectly_unary_invocable<_Fn, projected<_It, _Pj>>);
 
-            for (; _First != _Last; ++_First) {
-                _STD invoke(_Func, _STD invoke(_Proj, *_First));
+            if constexpr (_Is_hive_iterator<_It> && _Is_hive_iterator<_Se>) {
+                _First = _Hive_algorithms::_For_each(_First, _Last,
+                    [&_Func, _Proj](auto& _Val) mutable { _STD invoke(_Func, _STD invoke(_Proj, _Val)); });
+            } else {
+                for (; _First != _Last; ++_First) {
+                    _STD invoke(_Func, _STD invoke(_Proj, *_First));
+                }
             }
 
             return {_STD move(_First), _STD move(_Func)};

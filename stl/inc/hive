@@ -1910,6 +1910,52 @@ constexpr _Iter_diff_t<_HiveIt> _Hive_algorithms::_Distance(_HiveIt _First, cons
     return _Ret;
 }
 
+template <class _HiveIt, class _HiveSe, class _Fn>
+constexpr _HiveIt _Hive_algorithms::_For_each(_HiveIt _UFirst, const _HiveSe& _ULast, _Fn _Func) {
+    _STL_INTERNAL_STATIC_ASSERT(_Is_hive_iterator<_HiveIt> && !_Unwrappable_v<_HiveIt>);
+    _STL_INTERNAL_STATIC_ASSERT(_Is_hive_iterator<_HiveSe> && !_Unwrappable_v<_HiveSe>);
+
+    using _Scary_val = _HiveIt::_Hive_scary_val;
+    using _Ref       = iter_reference_t<_HiveIt>;
+
+    const auto _For_each_local = [_Func = _STD _Pass_fn(_Func)](auto _First, const auto& _Last) mutable {
+        _STL_INTERNAL_CHECK(_First != _Last);
+        do {
+            _Func(static_cast<_Ref>(*_First));
+            ++_First;
+        } while (_First != _Last);
+        return _Last;
+    };
+
+    if (_UFirst._Blk != _ULast._Blk) {
+        if (_UFirst._Index != _UFirst._Blk->_First_element()) {
+            _Scary_val::_With_block_iters(_UFirst._Blk, _UFirst._Index, _UFirst._Blk->_Capacity, _For_each_local);
+            ++_UFirst._Blk;
+        }
+
+        for (; _UFirst._Blk != _ULast._Blk; ++_UFirst._Blk) {
+            _Scary_val::_Visit_block_iter_n(_UFirst._Blk, [_Func = _STD _Pass_fn(_Func)](auto _Fst, auto _Cnt) mutable {
+                _STL_INTERNAL_CHECK(_Cnt != 0);
+                do {
+                    _Func(static_cast<_Ref>(*_Fst));
+                    ++_Fst;
+                    --_Cnt;
+                } while (_Cnt != 0);
+            });
+        }
+
+        _UFirst._Index = _UFirst._Blk->_First_element();
+    }
+
+    _STL_INTERNAL_CHECK(_UFirst._Blk == _ULast._Blk);
+
+    if (_UFirst._Index != _ULast._Index) {
+        _Scary_val::_With_block_iters(_UFirst._Blk, _UFirst._Index, _ULast._Index, _For_each_local);
+    }
+
+    return _HiveIt{_ULast._Blk, _ULast._Index};
+}
+
 template <class _Ty, class _Alloc>
 class hive {
 private:

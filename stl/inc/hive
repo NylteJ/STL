@@ -1871,6 +1871,45 @@ constexpr void _Hive_algorithms::_Advance(_HiveIt& _Where, _Diff _Offset) {
     }
 }
 
+template <class _HiveIt, class _HiveSe>
+constexpr _Iter_diff_t<_HiveIt> _Hive_algorithms::_Distance(_HiveIt _First, const _HiveSe& _Last) {
+    _STL_INTERNAL_STATIC_ASSERT(_Is_hive_iterator<_HiveIt> && _Is_hive_iterator<_HiveSe>);
+
+    _STD _Adl_verify_range(_First, _Last);
+
+    using _Diff_t    = iter_difference_t<_HiveIt>;
+    using _Scary_val = _HiveIt::_Hive_scary_val;
+
+    _Diff_t _Ret = 0;
+
+    const auto _Accumulate_distance_local = [&_Ret](const auto& _First_local, const auto& _Last_local) {
+        _Ret += static_cast<_Diff_t>(_RANGES distance(_First_local, _Last_local));
+        return _First_local;
+    };
+
+    if (_First._Blk != _Last._Blk) {
+        if (_First._Index != _First._Blk->_First_element()) {
+            _Scary_val::_With_block_iters(
+                _First._Blk, _First._Index, _First._Blk->_Capacity, _Accumulate_distance_local);
+            ++_First._Blk;
+        }
+
+        for (; _First._Blk != _Last._Blk; ++_First._Blk) {
+            _Ret += _First._Blk->_Size;
+        }
+
+        _First._Index = _First._Blk->_First_element();
+    }
+
+    _STL_INTERNAL_CHECK(_First._Blk == _Last._Blk);
+
+    if (_First._Index != _Last._Index) {
+        _Scary_val::_With_block_iters(_First._Blk, _First._Index, _Last._Index, _Accumulate_distance_local);
+    }
+
+    return _Ret;
+}
+
 template <class _Ty, class _Alloc>
 class hive {
 private:

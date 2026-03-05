@@ -2391,7 +2391,7 @@ public:
             al_1, limits_counts_mat);
     }
 
-    // also including `advance` and three-way comparison
+    // also including `advance`, `distance`, and three-way comparison
     void test_iteration() {
         hive_matrix(
             [](hive_t& cont) {
@@ -2457,6 +2457,11 @@ public:
                     assert(next(first, cont_diff) == last);
                     assert(ranges::prev(last, cont_diff) == first);
                     assert(ranges::next(first, cont_diff) == last);
+
+                    if constexpr (is_same_v<First, Last>) {
+                        assert(distance(first, last) == cont_diff);
+                    }
+                    assert(ranges::distance(first, last) == cont_diff);
                 };
 
                 test(cont.begin(), cont.end());
@@ -2475,6 +2480,8 @@ public:
         assert((citer_t{} <=> iter_t{}) == strong_ordering::equal);
         assert(next(iter_t{}, 0) == iter_t{});
         assert(ranges::next(riter_t{}, 0) == riter_t{});
+        assert(distance(iter_t{}, iter_t{}) == 0);
+        assert(ranges::distance(riter_t{}, riter_t{}) == 0);
     }
 
     void test_EH()

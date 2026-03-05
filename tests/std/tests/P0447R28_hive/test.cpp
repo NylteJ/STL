@@ -1646,6 +1646,18 @@ public:
 
                         if constexpr (Cpp17CopyInsertable && Cpp17CopyAssignable) {
                             range_matrix<false>(matrix, al_1, new_cnt);
+
+                            // fake overlap
+                            hive_matrix(
+                                [&](hive_t& dst) {
+                                    dst.assign_range(ranges::subrange{dst.begin(), dst.begin()});
+                                    dst.assign_range(ranges::subrange{dst.rbegin(), dst.rbegin()});
+                                    dst.assign(dst.begin(), dst.begin());
+                                    dst.assign(dst.rbegin(), dst.rbegin());
+                                    dst.assign_range(dst);
+                                    assert(dst.empty());
+                                },
+                                al_1, limits, old_cnt);
                         }
                         if constexpr (Cpp17MoveInsertable && Cpp17MoveAssignable) {
                             range_matrix<true>(matrix, al_1, new_cnt);
@@ -1965,6 +1977,23 @@ public:
 
                     if constexpr (Cpp17CopyInsertable) {
                         range_matrix<false>(matrix, al_1, cnt);
+
+                        // fake overlap
+                        hive_matrix(
+                            [&](hive_t& dst) {
+                                const auto expect = unwrap_to_vec(dst);
+
+                                if (dst.empty()) {
+                                    dst.insert_range(dst);
+                                }
+                                dst.insert_range(ranges::subrange{dst.begin(), dst.begin()});
+                                dst.insert_range(ranges::subrange{dst.rbegin(), dst.rbegin()});
+                                dst.insert(dst.begin(), dst.begin());
+                                dst.insert(dst.rbegin(), dst.rbegin());
+
+                                assert_equal(dst, expect);
+                            },
+                            al_1, limits, cnt);
                     }
                     if constexpr (Cpp17MoveInsertable) {
                         range_matrix<true>(matrix, al_1, cnt);

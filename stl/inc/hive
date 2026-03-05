@@ -2475,6 +2475,17 @@ public:
     }
 
 private:
+    template <class _It>
+    constexpr void _Verify_iter_not_in_this([[maybe_unused]] const _It& _Iter) const noexcept {
+#if _ITERATOR_DEBUG_LEVEL != 0
+        if constexpr (_Is_hive_iterator<_It>) {
+            _STL_VERIFY(!_Myval._Is_parent_of(_Iter), "source range overlaps hive");
+        } else if constexpr (_Is_hive_riterator<_It>) {
+            _STL_VERIFY(!_Myval._Is_parent_of(_Iter._Get_current()), "source range overlaps hive");
+        }
+#endif // _ITERATOR_DEBUG_LEVEL != 0
+    }
+
     // Assigns elements via _Assign_func and constructs elements via _Insert_func.
     // _Orphan non-end iterators.
     template <class _InsertFn, class _AssignFn>
@@ -2570,13 +2581,21 @@ private:
 
     template <class _It>
     constexpr void _Assign_sized_rng(size_type _Size, _It&& _First) {
+        if (_Size != 0) {
+            _Verify_iter_not_in_this(_First);
+        }
         _Assign_n(_Size, _Lambdas::template _Copy_move_to_blk<_Lambdas::_Copy | _Lambdas::_Uninit>(_First),
             _Lambdas::template _Copy_move_to_blk<_Lambdas::_Copy | _Lambdas::_Init>(_First));
     }
 
     template <class _It, class _Se>
     constexpr void _Assign_unsized_rng(_It&& _First, _Se&& _Last) {
+#if _ITERATOR_DEBUG_LEVEL != 0
+        if (_First != _Last) {
+            _Verify_iter_not_in_this(_First);
+        }
         _Myval._Orphan_nonend();
+#endif // _ITERATOR_DEBUG_LEVEL != 0
 
         const auto _Sent = _Myval._Sent();
         for (auto _Blk = _Myval._Active_begin(); _Blk != _Sent; ++_Blk) {
@@ -3362,6 +3381,9 @@ private:
 
     template <class _It>
     constexpr void _Insert_sized_rng(size_type _Size, _It&& _First) {
+        if (_Size != 0) {
+            _Verify_iter_not_in_this(_First);
+        }
         _Insert_n(_Size, _Lambdas::template _Copy_move_to_blk<_Lambdas::_Copy | _Lambdas::_Uninit>(_First));
     }
 
@@ -3371,6 +3393,7 @@ private:
             return;
         }
 
+        _Verify_iter_not_in_this(_First);
         _Myval._Orphan_end();
 
         if (_Myval._Size != _Myval._Capacity) {

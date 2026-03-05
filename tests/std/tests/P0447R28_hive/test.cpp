@@ -3,7 +3,6 @@
 #define min(a, b) delete
 #define max(a, b) delete
 
-// TODO: These `#include`s are from the final version and not all used yet.
 #include <algorithm>
 #include <array>
 #include <cassert>
@@ -971,7 +970,7 @@ public:
         { expr }                   \
         __VA_ARGS__->same_as<ret>; \
     });                            \
-    /*(void) (expr)*/ // TODO
+    (void) (expr)
 
         // [container.reqmts] and [container.rev.reqmts]
         (void) ([](X a, X b, const X c, const iter_t i, const iter_t j, const X& v, X& s, X& t, X&& rv) {
@@ -3211,8 +3210,11 @@ using trivial_medium = uint16_t; // small skipfield
 using trivial_large  = uint64_t; // big skipfield
 
 int main() {
+#if TEST_PART == 1
     test_matrix<trivial_small>();
+#elif TEST_PART == 2 // ^^^ TEST_PART == 1 / TEST_PART == 2 vvv
     test_matrix<trivial_medium>();
+#elif TEST_PART == 3 // ^^^ TEST_PART == 2 / TEST_PART == 3 vvv
     test_matrix<trivial_large>();
 
 #ifndef __EDG__
@@ -3243,4 +3245,7 @@ int main() {
 
     // nonstandard test, SCARY
     static_assert(is_same_v<hive<int>::iterator, pmr::hive<int>::iterator>);
+#else // ^^^ TEST_PART == 3 / UNKNOWN vvv
+#error "wrong TEST_PART"
+#endif // ^^^ UNKNOWN ^^^
 }

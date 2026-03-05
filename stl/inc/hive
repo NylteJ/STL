@@ -3,6 +3,10 @@
 // Copyright (c) Microsoft Corporation.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+// TODO: If hive becomes constexpr, wrap each _Treat_union_as_ty branch and _Merge_alloc branch with `if !consteval`,
+//       and explicitly call `construct_at` for implicit lifetime types (union, block, skipfield) in constant
+//       evaluation.
+
 #ifndef _HIVE_
 #define _HIVE_
 #include <yvals_core.h>
@@ -28,6 +32,12 @@ _STL_DISABLE_CLANG_WARNINGS
 #undef msvc
 
 _STD_BEGIN
+// FIXME: GH-5738
+#if defined(__EDG__) && defined(_ENABLE_STL_INTERNAL_CHECK)
+template <class>
+constexpr bool is_implicit_lifetime_v = true;
+#endif
+
 _EXPORT_STD struct hive_limits {
     size_t min;
     size_t max;

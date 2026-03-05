@@ -243,6 +243,8 @@ struct _Hive_union_provider {
 template <class _ValueT, class _HiveSizeT, class _AnyPtrT>
 struct _Hive_block_provider {
     struct _Block : _Hive_block_base {
+        static constexpr bool _Bitset_mode = false;
+
         using _Union         = _Hive_union_provider<_ValueT>::_Union;
         using _Union_ptr     = _Rebind_pointer_t<_AnyPtrT, _Union>;
         using _Block_ptr     = _Rebind_pointer_t<_AnyPtrT, _Block>;
@@ -679,6 +681,7 @@ struct _Hive_iterators_provider {
 
     using _Block_iter_active = _Myhive::_Block_iter_active;
 
+    static constexpr bool _Bitset_mode     = _Myhive::_Bitset_mode;
     static constexpr auto _Sentinel_ord_id = _STD _Max_limit<typename _Myhive::size_type>();
 
     // also used in IDL as common base class
@@ -1482,6 +1485,8 @@ struct _Hive_val_provider {
         using _Block_iter_nonfull   = _Block_iters_provider::_Nonfull_iterator;
         using _Block_iter_reserved  = _Block_iters_provider::_Reserved_iterator;
 
+        static constexpr bool _Bitset_mode = _Block::_Bitset_mode;
+
         using _Iters_provider            = _Hive_iterators_provider<_Val>;
         using iterator                   = _Iters_provider::iterator;
         using const_iterator             = _Iters_provider::const_iterator;
@@ -2014,6 +2019,7 @@ private:
     using _Lambdas = _Scary_val::_Lambdas;
 
     static constexpr auto _Sentinel_ord_id = _Scary_val::_Sentinel_ord_id;
+    static constexpr auto _Bitset_mode     = _Scary_val::_Bitset_mode;
 
     // note that this may exceed `block_capacity_hard_limits().max` due to N5032 [hive.overview]/5.3
     static constexpr size_t _Hard_limits_max =

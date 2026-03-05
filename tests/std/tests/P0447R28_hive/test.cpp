@@ -3137,10 +3137,12 @@ void test_matrix() {
     }
 }
 
+using trivial_small  = uint8_t; // bitset
 using trivial_medium = uint16_t; // small skipfield
 using trivial_large  = uint64_t; // big skipfield
 
 int main() {
+    test_matrix<trivial_small>();
     test_matrix<trivial_medium>();
     test_matrix<trivial_large>();
 

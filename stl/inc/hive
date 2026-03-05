@@ -674,11 +674,210 @@ struct _Hive_bitset {
 
 template <class _ValueT>
     requires (_Hive_use_bitset<_ValueT>)
-struct _Hive_union_provider<_ValueT>;
+struct _Hive_union_provider<_ValueT> {
+    union _Union {
+        using _Skip_t = _Hive_skipfield_t<sizeof(_ValueT)>;
+
+        _ValueT _Value;
+        _Skip_t _Skip;
+
+        ~_Union() = delete; // FIXME: unnecessary in C++26
+    };
+};
 
 template <class _ValueT, class _HiveSizeT, class _AnyPtrT>
     requires (_Hive_use_bitset<_ValueT>)
-struct _Hive_block_provider<_ValueT, _HiveSizeT, _AnyPtrT>;
+struct _Hive_block_provider<_ValueT, _HiveSizeT, _AnyPtrT> {
+    struct _Block : _Hive_block_base {
+        static constexpr bool _Bitset_mode = true;
+
+        using _Block_ptr  = _Rebind_pointer_t<_AnyPtrT, _Block>;
+        using _Union      = _Hive_union_provider<_ValueT>::_Union;
+        using _Union_ptr  = _Rebind_pointer_t<_AnyPtrT, _Union>;
+        using _Order_id_t = _HiveSizeT;
+        using _Size_t     = _Hive_skipfield_t<sizeof(_ValueT)>;
+
+        static constexpr auto _Size_max      = _STD _Max_limit<_Size_t>();
+        static constexpr size_t _Bitset_bits = _Size_max + 1;
+        _STL_INTERNAL_STATIC_ASSERT(_Bitset_bits <= 256); // otherwise _First_free_range() is closer to O(N)
+
+        using _Bitset_t = _Hive_bitset<_Bitset_bits>;
+
+        _Block_ptr _Next; // active blocks list and reserved blocks list
+        _Block_ptr _Prev; // active blocks list
+
+        // blocks with unused memory (due to element erasure or unused tail space)
+        _Block_ptr _Next_nonfull;
+        _Block_ptr _Prev_nonfull;
+
+        _Union_ptr _Data; // also act as skipfield
+
+        _Size_t _Capacity;
+        _Size_t _Size;
+
+        _Bitset_t _Empty; // has one extra 0 past the end (i.e. _Empty[_Capacity] == 0)
+
+        _Order_id_t _Order_id;
+
+        _NODISCARD static constexpr _Block _Sentinel(_Block& _Blk) noexcept {
+            const auto _Ptr = pointer_traits<_Block_ptr>::pointer_to(_Blk);
+            return {
+                ._Next         = _Ptr,
+                ._Prev         = _Ptr,
+                ._Next_nonfull = _Ptr,
+                ._Prev_nonfull = _Ptr,
+                ._Data         = nullptr,
+                ._Capacity     = 0,
+                ._Size         = 0,
+                ._Empty{typename _Bitset_t::_Sentinel_tag{}},
+                ._Order_id = _STD _Max_limit<_Order_id_t>(),
+            };
+        }
+
+        _NODISCARD constexpr bool _Is_sent() const noexcept {
+            return _Order_id == _STD _Max_limit<_Order_id_t>();
+        }
+
+        _NODISCARD constexpr _Size_t _First_element() const noexcept {
+            return _Empty[0] ? _Data[0]._Skip : _Size_t{0};
+        }
+
+        _NODISCARD constexpr bool _Full() const noexcept {
+            _STL_INTERNAL_CHECK(_Size <= _Capacity);
+            return _Size == _Capacity;
+        }
+
+        // first + [0, second)
+        _NODISCARD constexpr pair<_Size_t, _Size_t> _First_free_range() {
+            _STL_INTERNAL_CHECK(!_Full());
+            const auto _First_free = static_cast<_Size_t>(_Empty._First_one());
+            return {_First_free, _Data[_First_free]._Skip};
+        }
+
+        // Init uninitialized block, except order id and IDL=2 data.
+        constexpr void _Init(_Size_t _Element_count) noexcept {
+            _Empty._Reset();
+            _Size = _Element_count;
+
+            if (!_Full()) {
+                _Empty._Set(_Size);
+                _Empty._Set(_Capacity - 1uz);
+                _Data[_Size]._Skip = _Data[_Capacity - 1]._Skip = static_cast<_Size_t>(_Capacity - _Size);
+            }
+        }
+
+        struct _Emplace_guard {
+            _Union_ptr _Pos;
+            typename _Union::_Skip_t _Skip;
+            constexpr explicit _Emplace_guard(_Union_ptr _Pos_) : _Pos(_Pos_), _Skip(_Pos->_Skip) {}
+            constexpr ~_Emplace_guard() noexcept {
+                if (_Pos != nullptr) {
+                    _Pos->_Skip = _Skip;
+                }
+            }
+        };
+
+        // Does not modify the nonfull blocks list. Returns the index of the new element.
+        // provides strong guarantee
+        template <class _Fn>
+        constexpr _Size_t _Emplace_one(_Fn _Func) {
+            _STL_INTERNAL_CHECK(!_Full());
+
+            const auto [_Free_pos, _Free_len] = _First_free_range();
+            _STL_INTERNAL_CHECK(_Free_len > 0);
+
+            _Emplace_guard _Guard{_Data + _Free_pos};
+            _Func(_Data + _Free_pos);
+            _Guard._Pos = nullptr;
+
+            _Empty._Reset(_Free_pos);
+            if (_Free_len != 1) {
+                _Empty._Set(_Free_pos + 1uz);
+                _Data[_Free_pos + 1]._Skip = _Data[_Free_pos + _Free_len - 1]._Skip =
+                    static_cast<_Size_t>(_Free_len - 1);
+            }
+            ++_Size;
+
+            return _Free_pos;
+        }
+
+        // n > 0
+        template <class _Fn>
+        constexpr void _Emplace_n(_Size_t _Count, _Fn _Func) {
+            _STL_INTERNAL_CHECK(_Size + _Count <= _Capacity);
+
+            _STL_INTERNAL_CHECK(_Count > 0);
+            do {
+                const auto [_Free_pos, _Free_len] = _First_free_range();
+                const auto _Cnt                   = (_STD min) (_Count, _Free_len);
+                _Emplace_n_at(_Free_pos, _Cnt, _STD _Pass_fn(_Func));
+                _Count -= _Cnt;
+            } while (_Count != 0);
+        }
+
+        // n > 0
+        template <class _Fn>
+        constexpr void _Emplace_n_at(_Size_t _Pos, _Size_t _Count, _Fn _Func) {
+            _STL_INTERNAL_CHECK(_Pos < _Capacity);
+            _STL_INTERNAL_CHECK(_Count > 0);
+
+            const auto _Length = _Data[_Pos]._Skip;
+            _STL_INTERNAL_CHECK(_Length >= _Count);
+            _STL_INTERNAL_CHECK(_Length == _Data[_Pos + _Length - 1]._Skip);
+            _Emplace_guard _Head_guard{_Data + _Pos};
+            if (_Length == _Count) {
+                _Emplace_guard _Tail_guard{_Data + _Pos + _Length - 1};
+                _Func(_Data + _Pos, _Count);
+                _Tail_guard._Pos = nullptr;
+            } else {
+                _Func(_Data + _Pos, _Count);
+            }
+            _Head_guard._Pos = nullptr;
+
+            _Empty._Reset(_Pos, _Pos + _Count + 0uz);
+            _Size += _Count;
+            if (_Length != _Count) {
+                _Empty._Set(_Pos + _Count + 0uz);
+                _Data[_Pos + _Count]._Skip = _Data[_Pos + _Length - 1]._Skip = static_cast<_Size_t>(_Length - _Count);
+            }
+        }
+
+        constexpr void _Mark_erased(_Size_t _Pos) noexcept {
+            _STL_INTERNAL_CHECK(!_Empty[_Pos]);
+            _STL_INTERNAL_CHECK(_Size > 1);
+
+            _Empty._Set(_Pos);
+
+            const bool _Left_erased  = _Pos != 0 && _Empty[_Pos - 1uz];
+            const bool _Right_erased = _Empty[_Pos + 1uz];
+
+            const auto _Left_skip  = _Left_erased ? _Data[_Pos - 1]._Skip : _Size_t{0};
+            const auto _Right_skip = _Right_erased ? _Data[_Pos + 1]._Skip : _Size_t{0};
+            const auto _Left_idx   = _Pos - _Left_skip;
+            const auto _Right_idx  = _Pos + _Right_skip;
+
+            _Data[_Left_idx]._Skip = _Data[_Right_idx]._Skip = static_cast<_Size_t>(_Left_skip + 1 + _Right_skip);
+
+            --_Size;
+        }
+
+        constexpr void _Mark_erased(_Size_t _First, _Size_t _Last, _Size_t _Elem_count) noexcept {
+            _STL_INTERNAL_CHECK(_First < _Last && _Last <= _Capacity);
+            _STL_INTERNAL_CHECK(_Size > _Elem_count);
+            _STL_INTERNAL_CHECK(!_Empty[_First] && !_Empty[_Last]); // _Empty[_Capacity] is false
+
+            _Empty._Set(_First);
+            _Empty._Set(_Last - 1uz);
+
+            const bool _Left_erased = _First != 0 && _Empty[_First - 1uz];
+            const auto _Left_skip   = _Left_erased ? _Data[_First - 1]._Skip : _Size_t{0};
+            const auto _Left_idx    = _First - _Left_skip;
+
+            _Data[_Left_idx]._Skip = _Data[_Last - 1]._Skip = static_cast<_Size_t>(_Last - _Left_idx);
+            _Size -= _Elem_count;
+        }
+    };
+};
 
 template <class _BlockT, class _BlockPtr>
 struct _Hive_block_iterators_provider {
@@ -829,7 +1028,16 @@ struct _Hive_iterators_provider {
 
         constexpr _Unchecked_local_iter& operator++() noexcept {
             _STL_INTERNAL_CHECK(_Index < _Blk->_Capacity);
-            const _Block_size_t _Delta = _Blk->_Skip[_Index + 1] + 1u;
+            _Block_size_t _Delta;
+            if constexpr (_Bitset_mode) {
+                if (_Blk->_Empty[_Index + 1uz]) {
+                    _Delta = _Blk->_Data[_Index + 1]._Skip + 1u;
+                } else {
+                    _Delta = 1;
+                }
+            } else {
+                _Delta = _Blk->_Skip[_Index + 1] + 1u;
+            }
             _STL_INTERNAL_CHECK(_Delta <= _Blk->_Capacity && _Index <= _Blk->_Capacity - _Delta);
             _Index += _Delta;
             return *this;
@@ -841,7 +1049,16 @@ struct _Hive_iterators_provider {
         }
         constexpr _Unchecked_local_iter& operator--() noexcept {
             _STL_INTERNAL_CHECK(_Index > 0);
-            const _Block_size_t _Delta = _Blk->_Skip[_Index - 1] + 1u;
+            _Block_size_t _Delta;
+            if constexpr (_Bitset_mode) {
+                if (_Blk->_Empty[_Index - 1uz]) {
+                    _Delta = _Blk->_Data[_Index - 1]._Skip + 1u;
+                } else {
+                    _Delta = 1;
+                }
+            } else {
+                _Delta = _Blk->_Skip[_Index - 1] + 1u;
+            }
             _STL_INTERNAL_CHECK(_Index >= _Delta);
             _Index -= _Delta;
             return *this;
@@ -1763,8 +1980,16 @@ struct _Hive_val_provider {
 
             // find free space past the last element
             if (_Size != 0) {
-                const auto& _Blk                    = *_Sent_block._Prev;
-                const _Block_size_t _Space_past_end = _Blk._Skip[_Blk._Capacity - 1];
+                const auto& _Blk = *_Sent_block._Prev;
+                _Block_size_t _Space_past_end;
+                if constexpr (_Bitset_mode) {
+                    // skip the first union to preserve the skip count
+                    _Space_past_end = _Blk._Empty[_Blk._Capacity - 1uz]
+                                        ? static_cast<_Block_size_t>(_Blk._Data[_Blk._Capacity - 1]._Skip - 1)
+                                        : _Block_size_t{0};
+                } else {
+                    _Space_past_end = _Blk._Skip[_Blk._Capacity - 1];
+                }
 
                 // skip the last union to preserve the free list node or skip count
                 if (_Space_past_end >= _Required_capacity + 1) {
@@ -2274,39 +2499,59 @@ private:
         for (auto _Blk = _Myval._Active_begin(); _Blk != _Sent; ++_Blk) {
             _STL_INTERNAL_CHECK(_Blk->_Size > 0);
 
-            _STL_INTERNAL_CHECK(_Blk->_Skip[_Blk->_Capacity] == 0);
-
-            for (_Block_size_t _Idx = 0; _Idx != _Blk->_Capacity;) {
-                if (_Blk->_Skip[_Idx] != 0) {
-                    const auto _Length = _Blk->_Skip[_Idx];
-                    const auto _Tail   = _Idx + _Length - 1;
-                    _STL_INTERNAL_CHECK(0 < _Length && _Length <= _Blk->_Capacity - _Idx);
-                    _STL_INTERNAL_CHECK(_Blk->_Skip[_Idx] == _Blk->_Skip[_Tail]);
-                    _Idx += _Length;
-                } else {
-                    ++_Idx;
-                }
-            }
-
-            if (!_Blk->_Full()) {
-                const auto _First_free = _Blk->_First_free;
-                const auto _First_node = _First_free + _Blk->_Skip[_First_free] - 1;
-                _STL_INTERNAL_CHECK(_Blk->_Data[_First_node]._Free._Prev == _Block::_Free_npos);
+            if constexpr (_Bitset_mode) {
+                _STL_INTERNAL_CHECK(_Blk->_Empty[_Blk->_Capacity] == false);
 
                 _Block_size_t _Space_count = 0;
-                for (auto _Node = _First_node;;) {
-                    const auto _Next_node = _Blk->_Data[_Node]._Free._Next;
-
-                    _STL_INTERNAL_CHECK(_Blk->_Skip[_Node] > 0);
-                    _Space_count += _Blk->_Skip[_Node];
-
-                    if (_Next_node == _Block::_Free_npos) {
-                        break;
+                for (_Block_size_t _Idx = 0; _Idx != _Blk->_Capacity;) {
+                    if (_Blk->_Empty[_Idx]) {
+                        const auto _Length = _Blk->_Data[_Idx]._Skip;
+                        const auto _Tail   = static_cast<_Block_size_t>(_Idx + _Length - 1);
+                        _STL_INTERNAL_CHECK(0 < _Length && _Length <= _Blk->_Capacity - _Idx);
+                        _STL_INTERNAL_CHECK(_Blk->_Empty[_Tail]);
+                        _STL_INTERNAL_CHECK(_Blk->_Data[_Idx]._Skip == _Blk->_Data[_Tail]._Skip);
+                        _Idx += _Length;
+                        _Space_count += _Length;
+                    } else {
+                        ++_Idx;
                     }
-                    _STL_INTERNAL_CHECK(_Blk->_Data[_Next_node]._Free._Prev == _Node);
-                    _Node = _Next_node;
                 }
                 _STL_INTERNAL_CHECK(_Space_count == _Blk->_Capacity - _Blk->_Size);
+            } else {
+                _STL_INTERNAL_CHECK(_Blk->_Skip[_Blk->_Capacity] == 0);
+
+                for (_Block_size_t _Idx = 0; _Idx != _Blk->_Capacity;) {
+                    if (_Blk->_Skip[_Idx] != 0) {
+                        const auto _Length = _Blk->_Skip[_Idx];
+                        const auto _Tail   = _Idx + _Length - 1;
+                        _STL_INTERNAL_CHECK(0 < _Length && _Length <= _Blk->_Capacity - _Idx);
+                        _STL_INTERNAL_CHECK(_Blk->_Skip[_Idx] == _Blk->_Skip[_Tail]);
+                        _Idx += _Length;
+                    } else {
+                        ++_Idx;
+                    }
+                }
+
+                if (!_Blk->_Full()) {
+                    const auto _First_free = _Blk->_First_free;
+                    const auto _First_node = _First_free + _Blk->_Skip[_First_free] - 1;
+                    _STL_INTERNAL_CHECK(_Blk->_Data[_First_node]._Free._Prev == _Block::_Free_npos);
+
+                    _Block_size_t _Space_count = 0;
+                    for (auto _Node = _First_node;;) {
+                        const auto _Next_node = _Blk->_Data[_Node]._Free._Next;
+
+                        _STL_INTERNAL_CHECK(_Blk->_Skip[_Node] > 0);
+                        _Space_count += _Blk->_Skip[_Node];
+
+                        if (_Next_node == _Block::_Free_npos) {
+                            break;
+                        }
+                        _STL_INTERNAL_CHECK(_Blk->_Data[_Next_node]._Free._Prev == _Node);
+                        _Node = _Next_node;
+                    }
+                    _STL_INTERNAL_CHECK(_Space_count == _Blk->_Capacity - _Blk->_Size);
+                }
             }
 
             _STL_INTERNAL_CHECK(_Blk->_Next->_Prev == _Blk);
@@ -2411,7 +2656,7 @@ private:
         _Alloc_construct_n_ptr _New_data(_Alu, _Block_cap);
         _New_data._Allocate();
 
-        {
+        if constexpr (!_Bitset_mode) {
             using _Skip_t     = _Block::_Skipfield_t;
             using _Alskip     = _Rebind_alloc_t<_Alloc, _Skip_t>;
             using _Alskp_size = _Alloc_size_t<_Alskip>;
@@ -2768,7 +3013,7 @@ private:
 
     // does not destroy elements
     constexpr void _Dealloc_block(_Block_ptr _Blk) const noexcept {
-        {
+        if constexpr (!_Bitset_mode) {
             using _Alskip = _Rebind_alloc_t<_Alloc, typename _Block::_Skipfield_t>;
             _Alskip _Als(_Al);
             allocator_traits<_Alskip>::deallocate(
@@ -3486,7 +3731,7 @@ private:
         // If the minimum limit is too large, a container with only one element wastes a lot of memory.
         // If the minimum limit is too small, repeated single insertions create many tiny blocks, also wasting memory.
         // This function finds the minimum limit that balances waste across these two worst cases.
-        constexpr size_t _Skipfield_size = sizeof(_Block_size_t);
+        constexpr size_t _Skipfield_size = _Bitset_mode ? 0uz : sizeof(_Block_size_t);
         _STL_INTERNAL_STATIC_ASSERT(_Default_limits_max >= 1);
 
         constexpr auto _Log2_ceil = [](size_t _Val) {

@@ -2680,7 +2680,70 @@ private:
     }
 
 public:
-    void shrink_to_fit();
+    void shrink_to_fit() {
+        if (_Myval._Capacity == _Myval._Size) {
+            return;
+        }
+
+        const auto _Limits        = _Myval._Limits;
+        const auto _Block_count   = static_cast<size_type>((_Myval._Size + (_Limits.max - 1uz)) / _Limits.max);
+        const auto _Base_elem_cnt = static_cast<size_type>(_Block_count * _Limits.min);
+        if (_Myval._Capacity == _Base_elem_cnt) {
+            return;
+        }
+        _STL_INTERNAL_CHECK(_Myval._Capacity > _Base_elem_cnt);
+
+        if (_Limits.min != _Limits.max) {
+            const auto _Actual_elem_cnt = (_STD max) (_Myval._Size, _Base_elem_cnt);
+            const auto _Extra_elem_cnt  = static_cast<size_type>(_Actual_elem_cnt - _Base_elem_cnt);
+            const auto _Max_block_cnt   = static_cast<size_type>(_Extra_elem_cnt / (_Limits.max - _Limits.min));
+
+            if (_Max_block_cnt == 0) {
+                trim_capacity();
+                _Rebuild_all();
+                return;
+            }
+
+            auto _Rest_max = _Max_block_cnt;
+
+            _Block _Temp_sent = _Block::_Sentinel(_Temp_sent);
+            const auto _Count = _Pick_active_for_rebuild(
+                [&](const auto& _Blk) {
+                    if (_Rest_max != 0 && _Blk->_Size == _Limits.max) {
+                        // rebuilding these blocks will not reduce capacity
+                        _STL_INTERNAL_CHECK(_Blk->_Full() && _Blk->_Capacity == _Limits.max);
+                        --_Rest_max;
+                        return false;
+                    }
+                    return true;
+                },
+                _Temp_sent);
+
+            if (_Rest_max != 0) {
+                _Drop_reserved_if([&](const auto& _Blk) {
+                    if (_Rest_max != 0 && _Blk->_Capacity == _Limits.max) {
+                        // these blocks can be reused
+                        --_Rest_max;
+                        return false;
+                    }
+                    return true;
+                });
+            } else {
+                trim_capacity();
+            }
+
+            _Rebuild_n(_Count, _Temp_sent);
+        } else {
+            trim_capacity();
+
+            if (_Myval._Capacity != _Base_elem_cnt) {
+                _Block _Temp_sent = _Block::_Sentinel(_Temp_sent);
+                const auto _Count =
+                    _Pick_active_for_rebuild([=](const auto& _Blk) { return _Blk->_Size != _Limits.max; }, _Temp_sent);
+                _Rebuild_n(_Count, _Temp_sent);
+            }
+        }
+    }
 
     void trim_capacity() noexcept {
         trim_capacity(0);

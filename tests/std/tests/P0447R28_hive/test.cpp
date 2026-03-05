@@ -1751,6 +1751,38 @@ public:
             al_1, limits_counts_mat);
     }
 
+    void test_shrink_to_fit()
+        requires Cpp17MoveInsertable
+    {
+        hive_matrix(
+            [&](hive_t& cont) {
+                const auto vals      = unwrap_to_vec(cont);
+                const auto old_cap   = cont.capacity();
+                const bool no_effect = old_cap == cont.size();
+
+                if (no_effect) {
+                    try_forbid_alloc();
+                }
+                cont.shrink_to_fit();
+                if (no_effect) {
+                    try_allow_alloc();
+                }
+
+                if (no_effect) {
+                    assert_equal(cont, vals);
+                } else {
+                    assert_permutation(cont, vals);
+
+                    const auto limits          = cont.block_capacity_limits();
+                    const auto min_block_count = (cont.size() + (limits.max - 1)) / limits.max;
+                    const auto min_capacity    = max(static_cast<size_ty>(min_block_count * limits.min), cont.size());
+                    assert(cont.capacity() == min_capacity); // NB: nonstandard guarantee
+                }
+                assert(cont.capacity() <= old_cap);
+            },
+            al_1, limits_counts_mat);
+    }
+
     void test_trim_capacity() {
         hive_matrix(
             [&](hive_t& cont) {
@@ -2310,6 +2342,7 @@ public:
         test_ctors();
         test_assign();
         test_reserve();
+        DO_IF_VALID(test_shrink_to_fit());
         test_trim_capacity();
         DO_IF_VALID(test_reshape());
         test_insert();
@@ -2726,6 +2759,8 @@ void tests<Alloc, Maker, T, EqualPred, LessPred>::test_EH()
         for (const auto& cnt : counts) {
             // reserve
             hive_mat_EH([&](hive_t& cont) { cont.reserve(cont.capacity() + cnt); }, al_1, limits, cnt);
+            // shrink_to_fit
+            hive_mat_EH([&](hive_t& cont) { cont.shrink_to_fit(); }, al_1, limits, cnt);
             // reshape
             for (const auto& [new_limits, _] : limits_counts_mat) {
                 hive_mat_EH([&](hive_t& cont) { cont.reshape(new_limits); }, al_1, limits, cnt);

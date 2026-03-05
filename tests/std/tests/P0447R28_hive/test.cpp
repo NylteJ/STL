@@ -1252,6 +1252,24 @@ public:
 #undef ASSERT_RET
 #undef TEST_DECL
 
+        // nonstandard test, _Is_hive_iterator
+        {
+            static_assert(_Is_hive_iterator<iter_t, true>);
+            static_assert(_Is_hive_iterator<iter_t>);
+            static_assert(_Is_hive_iterator<citer_t>);
+            static_assert(!_Is_hive_iterator<citer_t, true>);
+
+            static_assert(_Is_hive_riterator<riter_t, true>);
+            static_assert(_Is_hive_riterator<riter_t>);
+            static_assert(_Is_hive_riterator<criter_t>);
+            static_assert(!_Is_hive_riterator<criter_t, true>);
+
+            struct evil_iter : iter_t {};
+            static_assert(!_Is_hive_iterator<evil_iter>);
+            static_assert(!_Is_hive_riterator<evil_iter>);
+            static_assert(!_Is_hive_riterator<reverse_iterator<evil_iter>>);
+        }
+
         return true;
     }
 

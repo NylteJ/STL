@@ -821,6 +821,12 @@ struct _Hive_iterators_provider {
 
         friend _Hive_iterators_provider;
 
+        template <class _Iter, bool _RequiresMutable>
+        friend consteval bool _STD _Is_hive_iterator_impl();
+
+        using _Flag =
+            conditional_t<_Const, _Hive_iterator_flag<_Unchecked_iter>, _Hive_mutable_iterator_flag<_Unchecked_iter>>;
+
         constexpr _Unchecked_iter(_Block_iter_active _Blk_, _Block_size_t _Index_) : _Mybase(_Blk_, _Index_) {}
 
         _NODISCARD constexpr auto _Mutable() const noexcept
@@ -937,6 +943,11 @@ struct _Hive_iterators_provider {
         friend class hive;
 
         friend _Hive_iterators_provider;
+
+        template <class _Iter, bool _RequiresMutable>
+        friend consteval bool _STD _Is_hive_iterator_impl();
+
+        using _Flag = conditional_t<_Const, _Hive_iterator_flag<_Iter>, _Hive_mutable_iterator_flag<_Iter>>;
 
         constexpr _Iter(_Block_iter_active _Blk_, _Block_size_t _Index_) : _Mybase(_Blk_, _Index_) {
             this->_Adopt(_STD to_address(_Blk._Ptr()));

@@ -1786,6 +1786,31 @@ constexpr void _Debug_order_set_unchecked(_InIt _First, _InIt _Last, _Pr&& _Pred
 }
 #endif // ^^^ _ITERATOR_DEBUG_LEVEL == 2 ^^^
 
+#if _HAS_CXX26
+template <class>
+struct _Hive_iterator_flag {};
+template <class _Ty>
+struct _Hive_mutable_iterator_flag : _Hive_iterator_flag<_Ty> {};
+
+template <class _It, bool _RequiresMutable>
+consteval bool _Is_hive_iterator_impl() {
+    if constexpr (requires { typename _It::_Flag; }) {
+        return is_base_of_v<conditional_t<_RequiresMutable, _Hive_mutable_iterator_flag<_It>, _Hive_iterator_flag<_It>>,
+            typename _It::_Flag>;
+    } else {
+        return false;
+    }
+}
+
+template <class _It, bool _RequiresMutable = false>
+constexpr bool _Is_hive_iterator = _STD _Is_hive_iterator_impl<_It, _RequiresMutable>();
+#else // ^^^ _HAS_CXX26 / !_HAS_CXX26 vvv
+template <class _It, bool _RequiresMutable = false>
+constexpr bool _Is_hive_iterator = false;
+#endif // ^^^ !_HAS_CXX26 ^^^
+template <class _It, bool _RequiresMutable = false>
+constexpr bool _Is_hive_riterator = false;
+
 // from <iterator>
 _EXPORT_STD template <class _InIt, class _Diff>
 _CONSTEXPR17 void advance(_InIt& _Where, _Diff _Off) { // increment iterator by offset
@@ -2144,6 +2169,10 @@ _NODISCARD _CONSTEXPR17 reverse_iterator<_BidIt> operator+(typename reverse_iter
     const reverse_iterator<_BidIt>& _Right) noexcept(noexcept(_Right + _Off)) /* strengthened */ {
     return _Right + _Off;
 }
+
+template <class _HiveIt, bool _RequiresMutable>
+constexpr bool _Is_hive_riterator<reverse_iterator<_HiveIt>, _RequiresMutable> =
+    _Is_hive_iterator<_HiveIt, _RequiresMutable>;
 
 _EXPORT_STD template <class _BidIt>
 _NODISCARD _CONSTEXPR17 reverse_iterator<_BidIt> make_reverse_iterator(_BidIt _Iter)

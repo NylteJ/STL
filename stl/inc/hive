@@ -1422,6 +1422,11 @@ struct _Hive_local_ptr_provider {
                                                               // to `addressof(_Raw->_Value) + n` (which is actually UB)
 };
 
+template <size_t _Size, size_t _Align>
+struct alignas(_Align) _Hive_aligned_chars {
+    char _Data[_Size];
+};
+
 template <class _Iter, class _Pr>
 class _Bidi_container_inplace_sorter {
     // Provides sorting for bidirectional ranges. Constructs and destroys temporary objects via allocator, guarantees
@@ -1839,6 +1844,9 @@ struct _Hive_val_provider {
         using _Local_ptr = _Hive_local_ptr_provider<_Union_ptr, pointer>::_Lptr;
 
         using _Lambdas = _Hive_lambdas<_Block_size_t, value_type>;
+
+        _STL_INTERNAL_STATIC_ASSERT(alignof(_Union) >= alignof(_Block_size_t));
+        using _Aligned_chars = _Hive_aligned_chars<sizeof(_Union), alignof(_Union)>;
 
         static constexpr auto _Sentinel_ord_id = _STD _Max_limit<size_type>();
 
@@ -2370,9 +2378,22 @@ private:
     static constexpr auto _Sentinel_ord_id = _Scary_val::_Sentinel_ord_id;
     static constexpr auto _Bitset_mode     = _Scary_val::_Bitset_mode;
 
+    using _Aligned_chars     = _Scary_val::_Aligned_chars;
+    using _Alchrs            = _Rebind_alloc_t<_Alloc, _Aligned_chars>;
+    using _Alchrs_traits     = allocator_traits<_Alchrs>;
+    using _Aligned_chars_ptr = _Alloc_ptr_t<_Alchrs>;
+    using _Alchrs_size_t     = _Alloc_size_t<_Alchrs>;
+
     // note that this may exceed `block_capacity_hard_limits().max` due to N5032 [hive.overview]/5.3
     static constexpr size_t _Hard_limits_max =
         _STD min<size_t>(_STD _Max_limit<_Block_size_t>(), _STD _Max_limit<size_type>());
+
+    // In skipfield mode, we merge allocations of the skipfield array and the element array when allocating element
+    // blocks for efficiency. We never merge the allocation of the element block with the allocation of the arrays,
+    // because benchmarks show it will lead to much worse performance in certain cases.
+    static constexpr bool _Merge_alloc =
+        !_Bitset_mode
+        && sizeof(_Aligned_chars) <= _Hard_limits_max * sizeof(_Block_size_t); // prevent excessive memory waste
 
     template <class _Iter>
     struct _NODISCARD _Local_backout_base {
@@ -2641,12 +2662,46 @@ private:
         }
     }
 
+    template <int = 0> // delay instantiation, see GH-1638
+    _NODISCARD static constexpr size_t _Get_merged_alloc_count(_Block_size_t _Block_cap) noexcept
+        requires _Merge_alloc
+    {
+        _STL_INTERNAL_STATIC_ASSERT(!_Bitset_mode);
+        const size_t _Element_bytes   = _Block_cap * sizeof(_Union);
+        const size_t _Skipfield_bytes = (_Block_cap + 1uz) * sizeof(typename _Block::_Skipfield_t);
+        return (_Element_bytes + _Skipfield_bytes + (sizeof(_Aligned_chars) - 1)) / sizeof(_Aligned_chars);
+    }
+
     _NODISCARD constexpr _Temp_new_block _Alloc_block(_Block_size_t _Block_cap) {
         _STL_INTERNAL_CHECK(_Myval._Limits._Contains(_Block_cap));
         _STL_INTERNAL_CHECK(_Block_cap > 0);
         _STL_INTERNAL_CHECK(_Block_cap <= max_size() - _Myval._Capacity);
         _STL_INTERNAL_STATIC_ASSERT(is_implicit_lifetime_v<_Block>);
         _STL_INTERNAL_STATIC_ASSERT(is_implicit_lifetime_v<_Union>);
+
+        if constexpr (_Merge_alloc) {
+            using _Skip_t    = _Block::_Skipfield_t;
+            using _Alskip    = _Rebind_alloc_t<_Alloc, _Skip_t>;
+            using _Alskp_ptr = _Alloc_ptr_t<_Alskip>;
+            _STL_INTERNAL_STATIC_ASSERT(alignof(_Block) >= alignof(_Skip_t));
+
+            const auto _Count = _Get_merged_alloc_count(_Block_cap);
+            if (_STD in_range<_Alchrs_size_t>(_Count)) {
+                _Alchrs _Alc(_Al);
+                _Alloc_construct_n_ptr _Buf(_Alc, static_cast<_Alchrs_size_t>(_Count));
+                _Buf._Allocate();
+
+                _Alblk _Alb(_Al);
+                const auto _New_block = _Alblk_traits::allocate(_Alb, 1, _Buf._Ptr); // no need to be protected
+
+                const auto _Buf_raw   = _STD to_address(_Buf._Release());
+                _New_block->_Data     = _STD _Refancy<_Union_ptr>(reinterpret_cast<_Union*>(_Buf_raw));
+                _New_block->_Skip     = _STD _Refancy<_Alskp_ptr>(reinterpret_cast<_Skip_t*>(_Buf_raw + _Block_cap));
+                _New_block->_Capacity = _Block_cap;
+
+                return _Temp_new_block{*this, _New_block};
+            }
+        }
 
         _Alblk _Alb(_Al);
         _Alloc_construct_ptr _New_block(_Alb);
@@ -3013,6 +3068,24 @@ private:
 
     // does not destroy elements
     constexpr void _Dealloc_block(_Block_ptr _Blk) const noexcept {
+        if constexpr (_Merge_alloc) {
+            const auto _Count = _Get_merged_alloc_count(_Blk->_Capacity);
+            if (_STD in_range<_Alchrs_size_t>(_Count)) {
+                {
+                    _Alchrs _Alc(_Al);
+                    const auto _Chars_ptr       = reinterpret_cast<_Aligned_chars*>(_STD to_address(_Blk->_Data));
+                    const auto _Chars_fancy_ptr = _STD _Refancy<_Aligned_chars_ptr>(_Chars_ptr);
+                    _Alchrs_traits::deallocate(_Alc, _Chars_fancy_ptr, static_cast<_Alchrs_size_t>(_Count));
+                }
+                {
+                    _Alblk _Alb(_Al);
+                    _Alblk_traits::deallocate(_Alb, _Blk, 1);
+                }
+
+                return;
+            }
+        }
+
         if constexpr (!_Bitset_mode) {
             using _Alskip = _Rebind_alloc_t<_Alloc, typename _Block::_Skipfield_t>;
             _Alskip _Als(_Al);

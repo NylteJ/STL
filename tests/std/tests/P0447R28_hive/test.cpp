@@ -428,6 +428,58 @@ namespace allocators {
             return true;
         }
     };
+
+    struct small_allocator_res {
+        // `difference_type` must be able to represent the difference between any two pointers in the allocation model
+        // ([allocator.requirements.general]/14)
+        array<char, numeric_limits<int16_t>::max()> buffer;
+        void* current          = buffer.data();
+        size_t allocated_count = 0;
+
+        void* allocate(size_t bytes, size_t align_) {
+            auto free_bytes = buffer.size() - (static_cast<char*>(current) - buffer.data());
+            if (!align(align_, bytes, current, free_bytes)) {
+                throw bad_alloc{};
+            }
+
+            const auto ret = current;
+            current        = static_cast<char*>(current) + bytes;
+            ++allocated_count;
+            return ret;
+        }
+        void deallocate() noexcept {
+            --allocated_count;
+            if (allocated_count == 0) {
+                current = buffer.data();
+            }
+        }
+    };
+    template <class T>
+    struct small_allocator {
+        using value_type      = T;
+        using size_type       = uint16_t;
+        using difference_type = int16_t;
+
+        small_allocator_res* res;
+
+        constexpr explicit small_allocator(small_allocator_res& res_) noexcept : res(&res_) {}
+        template <class U>
+        constexpr explicit small_allocator(const small_allocator<U>& other) noexcept : res(other.res) {}
+
+        constexpr T* allocate(size_t cnt) {
+            return static_cast<T*>(res->allocate(cnt * sizeof(T), alignof(T)));
+        }
+        constexpr void deallocate(T*, size_t) noexcept {
+            res->deallocate();
+        }
+
+        constexpr size_type max_size() const noexcept {
+            return static_cast<size_type>(
+                res->buffer.max_size() / sizeof(T) / 3); // smaller than theoretical max to test splicing of large hives
+        }
+
+        constexpr bool operator==(const small_allocator&) const = default;
+    };
 } // namespace allocators
 
 template <class Alloc, class Maker, class T = Alloc::value_type,
@@ -453,6 +505,8 @@ private:
             return typename T::tag{};
         }
     }());
+
+    static constexpr bool small_al = sizeof(size_ty) <= sizeof(uint16_t);
 
     static constexpr bool has_default_al = is_default_constructible_v<Alloc>;
     static constexpr bool different_al   = !al_traits::is_always_equal::value;
@@ -578,6 +632,12 @@ void allocator_matrix(Oper oper, Args&&... args) {
     oper(tests{allocator<T>{}, allocator<T>{}, args...});
 
     static_assert(decltype(tests{custom_allocator<T>{}, custom_allocator<T>{}, args...})::static_test());
+
+    {
+        const auto res_1 = make_unique<small_allocator_res>();
+        const auto res_2 = make_unique<small_allocator_res>();
+        oper(tests{small_allocator<T>{*res_1}, small_allocator<T>{*res_2}, args...});
+    }
 }
 
 template <class Raw>

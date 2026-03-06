@@ -96,6 +96,41 @@ namespace wrappers {
         pinned& operator=(pinned&&)      = delete;
     };
 
+    namespace details {
+        struct secret_ctor_tag {};
+    } // namespace details
+    template <class T>
+    struct tagged_constructible : wrapper_base {
+        using tag = details::secret_ctor_tag;
+
+        T value;
+
+        /* implicit */ tagged_constructible(T unwrapped) : value(unwrapped) {}
+
+        template <class... Args>
+        explicit tagged_constructible(tag, Args&&... args)
+            requires (is_constructible_v<T, Args && ...>)
+            : value(forward<Args>(args)...) {}
+
+        tagged_constructible(tag, const tagged_constructible& other) : value(other.value) {}
+        tagged_constructible(tag, tagged_constructible&& other) : value(move(other.value)) {}
+
+        tagged_constructible(const tagged_constructible&) {
+            // static_assert rather than =delete because container-compatible-range requires this
+            static_assert(false);
+        }
+        tagged_constructible(tagged_constructible&&) {
+            // static_assert rather than =delete because container-compatible-range requires this
+            static_assert(false);
+        }
+        tagged_constructible& operator=(const tagged_constructible&) = default;
+        tagged_constructible& operator=(tagged_constructible&&)      = default;
+
+        friend void swap(tagged_constructible& left, tagged_constructible& right) noexcept {
+            swap(left.value, right.value);
+        }
+    };
+
     constexpr auto unwrap_equal_pred = [](const wrapper auto& left, const wrapper auto& right) -> bool {
         return left.value == right.value;
     };
@@ -123,7 +158,21 @@ decltype(auto) unwrap_range(Range&& rng) {
     }
 }
 
-namespace allocators {}
+namespace allocators {
+    template <class T>
+    struct tagged_allocator : allocator<T> {
+        tagged_allocator() = default;
+        template <class U>
+        constexpr explicit tagged_allocator(const tagged_allocator<U>&) noexcept {}
+
+        template <class... Args>
+        constexpr void construct(T* p, Args&&... args)
+            requires requires { typename T::tag; }
+        {
+            construct_at(p, typename T::tag{}, forward<Args>(args)...);
+        }
+    };
+} // namespace allocators
 
 template <class Alloc, class Maker, class T = Alloc::value_type,
     class EqualPred = conditional_t<wrappers::wrapper<T>, decltype(wrappers::unwrap_equal_pred), equal_to<T>>,
@@ -142,15 +191,25 @@ private:
 
     using al_traits = allocator_traits<Alloc>;
 
+    static constexpr bool tagged_al = is_same_v<Alloc, allocators::tagged_allocator<T>>;
+    using tag_t                     = decltype([] {
+        if constexpr (tagged_al) {
+            return typename T::tag{};
+        }
+    }());
+
     static constexpr bool has_default_al = is_default_constructible_v<Alloc>;
     static constexpr bool different_al   = !al_traits::is_always_equal::value;
 
-    static constexpr bool Cpp17MoveInsertable    = is_move_constructible_v<T>;
-    static constexpr bool Cpp17CopyInsertable    = is_copy_constructible_v<T>;
-    static constexpr bool Cpp17DefaultInsertable = is_default_constructible_v<T>;
-    static constexpr bool Cpp17CopyAssignable    = is_copy_assignable_v<T>;
-    static constexpr bool Cpp17MoveAssignable    = is_move_assignable_v<T>;
-    static constexpr bool Cpp17Swappable         = is_swappable_v<T>;
+    static constexpr bool Cpp17MoveInsertable =
+        tagged_al ? is_constructible_v<T, tag_t, T&&> : is_move_constructible_v<T>;
+    static constexpr bool Cpp17CopyInsertable =
+        tagged_al ? is_constructible_v<T, tag_t, const T&> : is_copy_constructible_v<T>;
+    static constexpr bool Cpp17DefaultInsertable =
+        tagged_al ? is_constructible_v<T, tag_t> : is_default_constructible_v<T>;
+    static constexpr bool Cpp17CopyAssignable = is_copy_assignable_v<T>;
+    static constexpr bool Cpp17MoveAssignable = is_move_assignable_v<T>;
+    static constexpr bool Cpp17Swappable      = is_swappable_v<T>;
 
     Alloc al_1;
     Alloc al_2;
@@ -275,6 +334,8 @@ void test_matrix() {
 
     allocator_matrix<move_only<Raw>>(static_test, maker<Raw>);
     allocator_matrix<pinned<Raw>>(static_test, maker<Raw>);
+
+    static_assert(tests<allocators::tagged_allocator<tagged_constructible<Raw>>, decltype(maker<Raw>)>::static_test());
 }
 
 using trivial_medium = uint16_t; // small skipfield

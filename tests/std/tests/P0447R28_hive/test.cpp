@@ -482,6 +482,16 @@ namespace allocators {
     };
 } // namespace allocators
 
+namespace EH {
+    template <class T>
+    struct EH_allocator;
+    template <class T>
+    struct wrapper;
+
+    void forbid_alloc();
+    void allow_alloc();
+} // namespace EH
+
 template <class Alloc, class Maker, class T = Alloc::value_type,
     class EqualPred = conditional_t<wrappers::wrapper<T>, decltype(wrappers::unwrap_equal_pred), equal_to<T>>,
     class LessPred  = conditional_t<wrappers::wrapper<T>, decltype(wrappers::unwrap_less_pred), less<T>>>
@@ -507,6 +517,8 @@ private:
     }());
 
     static constexpr bool small_al = sizeof(size_ty) <= sizeof(uint16_t);
+
+    static constexpr bool EH_al = is_same_v<Alloc, EH::EH_allocator<T>>;
 
     static constexpr bool has_default_al = is_default_constructible_v<Alloc>;
     static constexpr bool different_al   = !al_traits::is_always_equal::value;
@@ -539,6 +551,8 @@ private:
     static_assert(is_same_v<raw_value_t, decltype(unwrap(declval<T>()))>);
     static_assert(convertible_to<raw_value_t, T>);
     static_assert(sizeof(raw_value_t) == sizeof(T));
+
+    static constexpr bool EH_wrapper = is_same_v<T, EH::wrapper<raw_value_t>>;
 
 public:
     tests(Alloc alloc_1, Alloc alloc_2, Maker raw_rng_maker, uint64_t random_seed = 142857,
@@ -590,6 +604,17 @@ private:
         }
     }
 
+    static void try_forbid_alloc() {
+        if constexpr (EH_al) {
+            EH::forbid_alloc();
+        }
+    }
+    static void try_allow_alloc() {
+        if constexpr (EH_al) {
+            EH::allow_alloc();
+        }
+    }
+
 public:
     static consteval bool static_test() {
         // TODO...
@@ -625,6 +650,156 @@ constexpr auto maker = [](integral auto cnt, uniform_random_bit_generator auto& 
     return ret;
 };
 
+namespace EH {
+    struct operation_counts {
+        size_t allocation   = 0;
+        size_t construction = 0;
+        size_t assignment   = 0;
+
+        void reset() {
+            allocation = construction = assignment = 0;
+        }
+        bool operator==(const operation_counts&) const = default;
+    };
+    struct heap_states {
+        size_t leaked_mem_bytes = 0;
+        size_t leaked_mem_count = 0;
+        size_t leaked_obj_count = 0;
+
+        bool operator==(const heap_states&) const = default;
+    };
+    struct throw_countdown {
+        optional<size_t> allocation   = nullopt;
+        optional<size_t> construction = nullopt;
+        optional<size_t> assignment   = nullopt;
+
+        void reset() {
+            allocation = construction = assignment = nullopt;
+        }
+    };
+
+    struct my_bad_alloc : bad_alloc {};
+    struct my_bad_construct {};
+    struct my_bad_assign {};
+
+    // Use global states to avoid increasing wrapper size and test `sizeof(T) == 1` scenarios.
+    operation_counts global_counts;
+    heap_states global_heap_states;
+    throw_countdown global_countdown;
+
+    void forbid_alloc() {
+        global_countdown.allocation = 0uz;
+    }
+    void allow_alloc() {
+        global_countdown.allocation = nullopt;
+    }
+
+    void on_allocate(size_t bytes) {
+        global_countdown.allocation = global_countdown.allocation.transform([](size_t countdown) {
+            if (countdown == 0) {
+                throw my_bad_alloc{};
+            }
+            return countdown - 1;
+        });
+
+        ++global_counts.allocation;
+        ++global_heap_states.leaked_mem_count;
+        global_heap_states.leaked_mem_bytes += bytes;
+    }
+    void on_deallocate(size_t bytes) noexcept {
+        --global_heap_states.leaked_mem_count;
+        global_heap_states.leaked_mem_bytes -= bytes;
+    }
+
+    void on_construct() {
+        global_countdown.construction = global_countdown.construction.transform([](size_t countdown) {
+            if (countdown == 0) {
+                throw my_bad_construct{};
+            }
+            return countdown - 1;
+        });
+
+        ++global_counts.construction;
+        ++global_heap_states.leaked_obj_count;
+    }
+    void on_destroy() noexcept {
+        --global_heap_states.leaked_obj_count;
+    }
+
+    void on_assign() {
+        global_countdown.assignment = global_countdown.assignment.transform([](size_t countdown) {
+            if (countdown == 0) {
+                throw my_bad_assign{};
+            }
+            return countdown - 1;
+        });
+
+        ++global_counts.assignment;
+    }
+
+    template <class T>
+    struct wrapper : wrappers::wrapper_base {
+        T value;
+        static_assert(is_nothrow_copy_assignable_v<T>);
+        static_assert(is_nothrow_move_assignable_v<T>);
+
+        wrapper() = default;
+        /* implicit */ wrapper(T unwrapped) : value(unwrapped) {}
+
+        wrapper(const wrapper&) = default;
+        wrapper(wrapper&&)      = default;
+
+        wrapper& operator=(const wrapper& other) {
+            value = other.value; // intentionally no strong guarantee
+            on_assign();
+            return *this;
+        }
+        wrapper& operator=(wrapper&& other) {
+            value = move(other.value); // intentionally no strong guarantee
+            on_assign();
+            return *this;
+        }
+    };
+
+    template <class T>
+    struct EH_allocator {
+        using value_type = T;
+
+        size_t id = 0;
+
+        EH_allocator() = default;
+        constexpr explicit EH_allocator(size_t id_) noexcept : id(id_) {}
+
+        template <class U>
+        constexpr explicit EH_allocator(const EH_allocator<U>& other) noexcept : id(other.id) {}
+
+        constexpr T* allocate(size_t cnt) {
+            on_allocate(cnt * sizeof(T));
+            return allocator<T>{}.allocate(cnt);
+        }
+        constexpr void deallocate(T* ptr, size_t cnt) noexcept {
+            allocator<T>{}.deallocate(ptr, cnt);
+            on_deallocate(cnt * sizeof(T));
+        }
+
+        template <class... Args>
+        constexpr void construct(T* p, Args&&... args) {
+            construct_at(p, forward<Args>(args)...); // intentionally no strong guarantee
+            on_construct();
+        }
+        constexpr void destroy(T* p) noexcept {
+            destroy_at(p);
+            on_destroy();
+        }
+
+        constexpr EH_allocator select_on_container_copy_construction() const noexcept {
+            return EH_allocator{id + 1000};
+        }
+
+        bool operator==(const EH_allocator&) const = default;
+    };
+} // namespace EH
+
 template <class T, class Oper, class... Args>
 void allocator_matrix(Oper oper, Args&&... args) {
     using namespace allocators;
@@ -637,6 +812,11 @@ void allocator_matrix(Oper oper, Args&&... args) {
         const auto res_1 = make_unique<small_allocator_res>();
         const auto res_2 = make_unique<small_allocator_res>();
         oper(tests{small_allocator<T>{*res_1}, small_allocator<T>{*res_2}, args...});
+    }
+    {
+        const auto init_states = EH::global_heap_states;
+        oper(tests{EH::EH_allocator<T>{1}, EH::EH_allocator<T>{2}, args...});
+        assert(init_states == EH::global_heap_states);
     }
 }
 

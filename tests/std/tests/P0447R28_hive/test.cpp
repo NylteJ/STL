@@ -172,6 +172,262 @@ namespace allocators {
             construct_at(p, typename T::tag{}, forward<Args>(args)...);
         }
     };
+
+    template <class T, class ElemT>
+    struct custom_allocator;
+    namespace details {
+        template <class T, class U>
+        concept same_without_const = is_same_v<remove_const_t<T>, remove_const_t<U>>;
+
+        template <class T>
+        struct fancy_pointer_usings {
+            using iterator_concept  = contiguous_iterator_tag;
+            using iterator_category = random_access_iterator_tag;
+            using value_type        = T;
+            using difference_type   = ptrdiff_t;
+            using pointer           = T*;
+            using reference         = T&;
+        };
+        template <class Void>
+            requires (is_void_v<Void>)
+        struct fancy_pointer_usings<Void> {
+        protected:
+            using difference_type = ptrdiff_t;
+            using reference       = int&;
+        };
+
+        template <class T>
+        class fancy_pointer : public fancy_pointer_usings<T>, public evil_type {
+            using mybase = fancy_pointer_usings<T>;
+            using typename mybase::difference_type, typename mybase::reference;
+
+        public:
+            constexpr fancy_pointer() noexcept = default;
+            constexpr fancy_pointer(nullptr_t) noexcept : ptr{nullptr} {}
+
+            constexpr explicit fancy_pointer(const fancy_pointer<const void>& other) noexcept
+                requires (is_const_v<T> && !is_void_v<T>)
+                : ptr{static_cast<T*>(other.ptr)} {}
+            constexpr explicit fancy_pointer(const fancy_pointer<void>& other) noexcept
+                requires (!is_void_v<T>)
+                : ptr{static_cast<T*>(other.ptr)} {}
+
+            operator fancy_pointer<const T>() const noexcept
+                requires (!is_const_v<T>)
+            {
+                return fancy_pointer<const T>{ptr};
+            }
+            operator fancy_pointer<void>() const noexcept
+                requires (!is_void_v<T> && !is_const_v<T>)
+            {
+                return fancy_pointer<void>{ptr};
+            }
+            operator fancy_pointer<const void>() const noexcept
+                requires (!is_void_v<T> || !is_const_v<T>)
+            {
+                return fancy_pointer<const void>{ptr};
+            }
+
+            explicit operator bool() const noexcept {
+                return static_cast<bool>(ptr);
+            }
+
+            constexpr reference operator*() const
+                requires (!is_void_v<T>)
+            {
+                return *ptr;
+            }
+            constexpr T* operator->() const
+                requires (!is_void_v<T>)
+            {
+                return addressof(*ptr);
+            }
+
+            void operator->*(const auto&) const = delete;
+
+            constexpr fancy_pointer& operator++()
+                requires (!is_void_v<T>)
+            {
+                ++ptr;
+                return *this;
+            }
+            constexpr fancy_pointer operator++(int)
+                requires (!is_void_v<T>)
+            {
+                const auto tmp = *this;
+                ++*this;
+                return tmp;
+            }
+            constexpr fancy_pointer& operator--()
+                requires (!is_void_v<T>)
+            {
+                --ptr;
+                return *this;
+            }
+            constexpr fancy_pointer operator--(int)
+                requires (!is_void_v<T>)
+            {
+                const auto tmp = *this;
+                --*this;
+                return tmp;
+            }
+
+            constexpr fancy_pointer& operator+=(difference_type n) noexcept
+                requires (!is_void_v<T>)
+            {
+                ptr += n;
+                return *this;
+            }
+#ifdef _WIN64
+            constexpr fancy_pointer& operator+=(int n) noexcept
+                requires (!is_void_v<T>)
+            {
+                ptr += n;
+                return *this;
+            }
+#endif // _WIN64
+            constexpr fancy_pointer& operator-=(difference_type n) noexcept
+                requires (!is_void_v<T>)
+            {
+                ptr -= n;
+                return *this;
+            }
+
+            constexpr fancy_pointer operator+(difference_type n) const noexcept
+                requires (!is_void_v<T>)
+            {
+                return fancy_pointer{ptr + n};
+            }
+#ifdef _WIN64
+            constexpr fancy_pointer operator+(int n) const noexcept
+                requires (!is_void_v<T>)
+            {
+                return fancy_pointer{ptr + n};
+            }
+#endif // _WIN64
+            constexpr friend fancy_pointer operator+(difference_type n, fancy_pointer ptr) noexcept
+                requires (!is_void_v<T>)
+            {
+                return ptr += n;
+            }
+            constexpr fancy_pointer operator-(difference_type n) const noexcept
+                requires (!is_void_v<T>)
+            {
+                return fancy_pointer{ptr - n};
+            }
+
+            constexpr reference operator[](difference_type off) const noexcept {
+                return ptr[off];
+            }
+
+            template <same_without_const<T> U>
+            constexpr bool operator==(const fancy_pointer<U>& other) const noexcept {
+                return ptr == other.ptr;
+            }
+            constexpr bool operator==(nullptr_t) const noexcept {
+                return ptr == nullptr;
+            }
+
+            template <same_without_const<T> U>
+            constexpr bool operator<(const fancy_pointer<U>& other) const noexcept
+                requires (!is_void_v<T>)
+            {
+                return ptr < other.ptr;
+            }
+            template <same_without_const<T> U>
+            constexpr bool operator<=(const fancy_pointer<U>& other) const noexcept
+                requires (!is_void_v<T>)
+            {
+                return ptr <= other.ptr;
+            }
+            template <same_without_const<T> U>
+            constexpr bool operator>(const fancy_pointer<U>& other) const noexcept
+                requires (!is_void_v<T>)
+            {
+                return ptr > other.ptr;
+            }
+            template <same_without_const<T> U>
+            constexpr bool operator>=(const fancy_pointer<U>& other) const noexcept
+                requires (!is_void_v<T>)
+            {
+                return ptr >= other.ptr;
+            }
+
+            template <same_without_const<T> U>
+            constexpr difference_type operator-(const fancy_pointer<U>& other) const noexcept
+                requires (!is_void_v<T>)
+            {
+                return ptr - other.ptr;
+            }
+
+        private:
+            template <class U>
+            friend class fancy_pointer;
+
+            template <class T_, class ElemT>
+            friend struct allocators::custom_allocator;
+            friend std::pointer_traits<fancy_pointer>;
+
+            constexpr explicit fancy_pointer(T* ptr_) noexcept : ptr{ptr_} {}
+
+            T* ptr;
+        };
+    } // namespace details
+} // namespace allocators
+
+template <class T>
+    requires (!is_void_v<T>)
+struct std::pointer_traits<allocators::details::fancy_pointer<T>> {
+    using pointer         = allocators::details::fancy_pointer<T>;
+    using element_type    = T;
+    using difference_type = allocators::details::fancy_pointer<T>::difference_type;
+
+    template <class U>
+    using rebind = allocators::details::fancy_pointer<U>;
+
+    static constexpr pointer pointer_to(element_type& ref) noexcept {
+        return pointer{addressof(ref)};
+    }
+    static constexpr element_type* to_address(const pointer& ptr) noexcept {
+        return ptr.ptr;
+    }
+};
+
+namespace allocators {
+    template <class T, class ElemT = T>
+    struct custom_allocator final {
+        using value_type = T;
+        using pointer    = details::fancy_pointer<T>;
+
+        custom_allocator() = default;
+        template <class U>
+        constexpr explicit custom_allocator(const custom_allocator<U, ElemT>&) noexcept {}
+
+        constexpr pointer allocate(size_t cnt) {
+            return pointer{allocator<T>{}.allocate(cnt)};
+        }
+        constexpr void deallocate(pointer ptr, size_t cnt) noexcept {
+            allocator<T>{}.deallocate(ptr.ptr, cnt);
+        }
+
+        template <class... Args>
+        constexpr void construct(T* p, Args&&... args) {
+            static_assert(is_same_v<T, ElemT>,
+                "`construct` and `destroy` are called only for the container's element type, not "
+                "for internal types used by the container ([container.requirements.pre]/3).");
+            construct_at(p, forward<Args>(args)...);
+        }
+        constexpr void destroy(T* p) {
+            static_assert(is_same_v<T, ElemT>,
+                "`construct` and `destroy` are called only for the container's element type, not "
+                "for internal types used by the container ([container.requirements.pre]/3).");
+            destroy_at(p);
+        }
+
+        constexpr bool operator==(const custom_allocator&) const {
+            return true;
+        }
+    };
 } // namespace allocators
 
 template <class Alloc, class Maker, class T = Alloc::value_type,
@@ -320,6 +576,8 @@ void allocator_matrix(Oper oper, Args&&... args) {
     using namespace allocators;
 
     oper(tests{allocator<T>{}, allocator<T>{}, args...});
+
+    static_assert(decltype(tests{custom_allocator<T>{}, custom_allocator<T>{}, args...})::static_test());
 }
 
 template <class Raw>

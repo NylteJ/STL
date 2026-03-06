@@ -836,6 +836,18 @@ private:
         }
     }
 
+    template <class Pred>
+    struct erase_proxy {
+        Pred pred;
+        raw_value_t val;
+
+        // see [hive.erasure], equivalent to `elem == value` (not `value == elem`)
+        bool operator==(const T&) const = delete;
+        friend bool operator==(const T& elem, const erase_proxy& value) {
+            return value.pred(elem, T{value.val});
+        }
+    };
+
 public:
     static consteval bool static_test() {
         // TODO...

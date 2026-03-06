@@ -482,6 +482,227 @@ namespace allocators {
     };
 } // namespace allocators
 
+template <class Ref, class Alloc, derived_from<input_iterator_tag> IterConcept, bool Common, bool SizedRange,
+    bool SizedSent>
+class custom_range {
+private:
+    static constexpr bool is_forward = derived_from<IterConcept, forward_iterator_tag>;
+    static constexpr bool is_bidi    = derived_from<IterConcept, bidirectional_iterator_tag>;
+    static constexpr bool is_random  = derived_from<IterConcept, random_access_iterator_tag>;
+    static constexpr bool is_ctg     = derived_from<IterConcept, contiguous_iterator_tag>;
+
+    static_assert(is_reference_v<Ref>);
+    static_assert(!is_same_v<remove_cvref_t<Ref>, bool>);
+    static_assert(SizedRange >= SizedSent);
+    static_assert(SizedSent >= is_random);
+
+    using al_traits = allocator_traits<Alloc>;
+
+public:
+    using value_type     = remove_cvref_t<Ref>;
+    using allocator_type = Alloc;
+    using pointer        = al_traits::pointer;
+    using const_pointer  = al_traits::const_pointer;
+    using reference      = Ref;
+    using const_reference =
+        conditional_t<is_lvalue_reference_v<Ref>, const remove_reference_t<Ref>&, const remove_reference_t<Ref>&&>;
+    using size_type       = al_traits::size_type;
+    using difference_type = al_traits::difference_type;
+
+private:
+    class sent : public evil_type {
+    public:
+        sent() = default;
+
+    private:
+        friend custom_range;
+
+        constexpr explicit sent(const value_type* ptr_) noexcept : ptr(ptr_) {}
+
+        const value_type* ptr;
+    };
+
+    template <bool Const>
+    class iter : public evil_type {
+    public:
+        using iterator_concept  = IterConcept;
+        using iterator_category = conditional_t<is_ctg, random_access_iterator_tag, IterConcept>;
+        using value_type        = custom_range::value_type;
+        using difference_type   = ptrdiff_t;
+        using pointer           = conditional_t<Const, const value_type*, value_type*>;
+        using reference         = conditional_t<Const, custom_range::const_reference, custom_range::reference>;
+
+        iter() = default;
+
+        /* implicit */ constexpr operator iter<true>() const noexcept
+            requires (!Const)
+        {
+            return iter<true>{ptr};
+        }
+
+        constexpr reference operator*() const noexcept {
+            return static_cast<reference>(*ptr);
+        }
+        constexpr pointer operator->() const noexcept {
+            return ptr;
+        }
+
+        constexpr iter& operator++() noexcept {
+            ++ptr;
+            return *this;
+        }
+        constexpr iter operator++(int) noexcept {
+            const auto tmp = *this;
+            ++ptr;
+            return tmp;
+        }
+
+        constexpr iter& operator--() noexcept
+            requires is_bidi
+        {
+            --ptr;
+            return *this;
+        }
+        constexpr iter operator--(int) noexcept
+            requires is_bidi
+        {
+            const auto tmp = *this;
+            --ptr;
+            return tmp;
+        }
+
+        constexpr iter& operator+=(const ptrdiff_t off) noexcept
+            requires is_random
+        {
+            ptr += off;
+            return *this;
+        }
+        constexpr iter& operator-=(const ptrdiff_t off) noexcept
+            requires is_random
+        {
+            ptr -= off;
+            return *this;
+        }
+        constexpr reference operator[](const difference_type off) const noexcept
+            requires is_random
+        {
+            return static_cast<reference>(ptr[off]);
+        }
+
+        constexpr difference_type operator-(const iter& right) const noexcept
+            requires (SizedSent && (Common || is_random))
+        {
+            return ptr - right.ptr;
+        }
+        constexpr difference_type operator-(const sent& right) const noexcept
+            requires (SizedSent && !Common)
+        {
+            return ptr - right.ptr;
+        }
+
+        constexpr bool operator==(const iter& right) const noexcept
+            requires (Common || is_forward)
+        {
+            return ptr == right.ptr;
+        }
+        constexpr bool operator==(const sent& right) const noexcept
+            requires (!Common)
+        {
+            return ptr == right.ptr;
+        }
+
+        constexpr bool operator<(const iter& right) const noexcept
+            requires is_random
+        {
+            return ptr < right.ptr;
+        }
+        constexpr bool operator<=(const iter& right) const noexcept
+            requires is_random
+        {
+            return ptr <= right.ptr;
+        }
+        constexpr bool operator>(const iter& right) const noexcept
+            requires is_random
+        {
+            return ptr > right.ptr;
+        }
+        constexpr bool operator>=(const iter& right) const noexcept
+            requires is_random
+        {
+            return ptr >= right.ptr;
+        }
+
+        constexpr iter operator+(const difference_type off) const noexcept
+            requires is_random
+        {
+            auto tmp = *this;
+            tmp += off;
+            return tmp;
+        }
+        constexpr iter operator-(const difference_type off) const noexcept
+            requires is_random
+        {
+            auto tmp = *this;
+            tmp -= off;
+            return tmp;
+        }
+        friend constexpr iter operator+(const difference_type off, iter it) noexcept
+            requires is_random
+        {
+            it += off;
+            return it;
+        }
+
+    private:
+        friend custom_range;
+
+        constexpr explicit iter(pointer ptr_) noexcept : ptr(ptr_) {}
+
+        pointer ptr;
+    };
+
+public:
+    using iterator       = iter<false>;
+    using const_iterator = iter<true>;
+
+    template <class Rng>
+    custom_range(from_range_t, Rng&& rng, Alloc al = Alloc()) : values(from_range, forward<Rng>(rng), al) {}
+
+    iterator begin() noexcept {
+        if constexpr (!is_forward) {
+            assert(!begin_has_been_called);
+            begin_has_been_called = true;
+        }
+        return iterator{values.data()};
+    }
+    const_iterator begin() const noexcept
+        requires is_forward
+    {
+        return const_iterator{values.data()};
+    }
+    iterator end() noexcept
+        requires Common
+    {
+        return iterator{values.data() + values.size()};
+    }
+    auto end() const noexcept {
+        return conditional_t<Common, const_iterator, sent>{values.data() + values.size()};
+    }
+
+    size_type size() noexcept
+        requires SizedRange
+    {
+        if constexpr (!is_forward) {
+            assert(!begin_has_been_called);
+        }
+        return values.size();
+    }
+
+private:
+    vector<value_type, Alloc> values;
+    bool begin_has_been_called = false;
+};
+
 namespace EH {
     template <class T>
     struct EH_allocator;
@@ -622,6 +843,60 @@ public:
         return true;
     }
 
+private:
+    template <bool Move, class Fn>
+    void range_matrix(Fn func, Alloc& al, size_ty cnt) {
+        using reference = conditional_t<Move, T&&, const T&>;
+
+        auto src_rng = gen_raw_rng(cnt);
+        if constexpr (!Move) {
+            // contiguous common range
+            using ctg_range = custom_range<T&, Alloc, contiguous_iterator_tag, true, true, true>;
+            static_assert(ranges::contiguous_range<ctg_range>);
+            static_assert(ranges::sized_range<ctg_range>);
+            static_assert(ranges::common_range<ctg_range>);
+
+            ctg_range rng(from_range, src_rng, al);
+            func([&] -> auto& { return rng; });
+        } else {
+            // random-access common range
+            using rnd_range = custom_range<reference, Alloc, random_access_iterator_tag, true, true, true>;
+            static_assert(ranges::random_access_range<rnd_range>);
+            static_assert(ranges::sized_range<rnd_range>);
+            static_assert(ranges::common_range<rnd_range>);
+
+            rnd_range rng(from_range, src_rng, al);
+            func([&] -> auto& { return rng; });
+        }
+        {
+            // unsized common forward range
+            using fwd_range = custom_range<reference, Alloc, forward_iterator_tag, true, false, false>;
+            static_assert(ranges::forward_range<fwd_range>);
+            static_assert(!ranges::bidirectional_range<fwd_range>);
+            static_assert(!ranges::sized_range<fwd_range>);
+            static_assert(ranges::common_range<fwd_range>);
+            using range_it = fwd_range::iterator;
+            static_assert(!sized_sentinel_for<range_it, range_it>);
+
+            fwd_range rng(from_range, src_rng, al);
+            func([&] -> auto& { return rng; });
+        }
+        {
+            // sized uncommon input range, with unsized sentinel
+            using in_range = custom_range<reference, Alloc, input_iterator_tag, false, true, false>;
+            static_assert(ranges::input_range<in_range>);
+            static_assert(!ranges::forward_range<in_range>);
+            static_assert(ranges::sized_range<in_range>);
+            static_assert(!ranges::common_range<in_range>);
+            using range_it = in_range::iterator;
+            using range_se = decltype(ranges::end(declval<in_range&>()));
+            static_assert(!sized_sentinel_for<range_se, range_it>);
+
+            func([&] { return in_range(from_range, src_rng, al); });
+        }
+    }
+
+public:
     void test_all() {
         static_assert(static_test());
 

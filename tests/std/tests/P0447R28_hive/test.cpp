@@ -35,6 +35,13 @@
 
 using namespace std;
 
+template <class B>
+concept boolean_testable_impl = convertible_to<B, bool>;
+template <class B>
+concept boolean_testable = boolean_testable_impl<B> && requires(B&& b) {
+    { !forward<B>(b) } -> boolean_testable_impl;
+};
+
 struct evil_type {
     void operator&() const = delete;
 
@@ -850,7 +857,298 @@ private:
 
 public:
     static consteval bool static_test() {
-        // TODO...
+        using X = hive_t;
+        using A = Alloc;
+
+#define TEST_DECL(declaration)        \
+    {                                 \
+        [[maybe_unused]] declaration; \
+    }
+#define ASSERT_RET(expr, ret, ...) \
+    static_assert(requires {       \
+        { expr }                   \
+        __VA_ARGS__->same_as<ret>; \
+    });                            \
+    /*(void) (expr)*/ // TODO
+
+        // [container.reqmts] and [container.rev.reqmts]
+        (void) ([](X a, X b, const X c, const iter_t i, const iter_t j, const X& v, X& s, X& t, X&& rv) {
+            // [container.reqmts]
+            static_assert(is_same_v<typename X::value_type, T>);
+            static_assert(is_same_v<typename X::reference, T&>);
+            static_assert(is_same_v<typename X::const_reference, const T&>);
+
+            static_assert(
+                forward_iterator<iter_t> && is_same_v<iter_value_t<iter_t>, T> && convertible_to<iter_t, citer_t>);
+            static_assert(forward_iterator<citer_t> && is_same_v<iter_value_t<citer_t>, T>);
+
+            static_assert(signed_integral<diff_t> && is_same_v<diff_t, iter_difference_t<iter_t>>
+                          && is_same_v<diff_t, iter_difference_t<citer_t>>);
+            static_assert(unsigned_integral<size_ty> && sizeof(size_ty) >= sizeof(diff_t));
+
+            if constexpr (has_default_al) {
+                TEST_DECL(X u)
+                TEST_DECL(X u = X())
+            }
+            if constexpr (Cpp17CopyInsertable) {
+                TEST_DECL(X u(v))
+                TEST_DECL(X u = v)
+            }
+            TEST_DECL(X u(move(rv)))
+            TEST_DECL(X u = move(rv))
+
+            if constexpr (Cpp17CopyInsertable && Cpp17CopyAssignable) {
+                ASSERT_RET(a = t, X&);
+            }
+            if constexpr ((allocator_traits<A>::propagate_on_container_move_assignment::value
+                              || allocator_traits<A>::is_always_equal::value)
+                          || (Cpp17MoveInsertable && Cpp17MoveAssignable)) {
+                ASSERT_RET(a = move(rv), X&);
+            }
+
+            ASSERT_RET(a.~X(), void);
+
+            (void) ([&](const X cb) {
+                ASSERT_RET(b.begin(), iter_t);
+                ASSERT_RET(cb.begin(), citer_t);
+                ASSERT_RET(b.end(), iter_t);
+                ASSERT_RET(cb.end(), citer_t);
+
+                ASSERT_RET(b.cbegin(), citer_t);
+                ASSERT_RET(cb.cbegin(), citer_t);
+                ASSERT_RET(b.cend(), citer_t);
+                ASSERT_RET(cb.cend(), citer_t);
+            });
+
+            ASSERT_RET(i <=> j, strong_ordering); // hive supports it, though not random-access
+
+            ASSERT_RET(t.swap(s), void);
+            ASSERT_RET(swap(t, s), void);
+
+            ASSERT_RET(c.size(), size_ty, noexcept);
+            ASSERT_RET(c.max_size(), size_ty, noexcept);
+            ASSERT_RET(c.empty(), bool, noexcept);
+
+            (void) ([&](const citer_t ci, const citer_t cj) {
+                constexpr auto test = [](const auto i, const auto j) {
+                    static_assert(requires {
+                        { i == j } -> boolean_testable;
+                        { i != j } -> boolean_testable;
+                        { i < j } -> boolean_testable;
+                        { i <= j } -> boolean_testable;
+                        { i >= j } -> boolean_testable;
+                        { i > j } -> boolean_testable;
+                        { i <=> j } -> same_as<strong_ordering>;
+                    });
+                };
+                test(i, j);
+                test(ci, j);
+                test(i, cj);
+                test(ci, cj);
+            });
+
+            // [container.rev.reqmts]
+            static_assert(is_same_v<riter_t, reverse_iterator<iter_t>>);
+            static_assert(is_same_v<criter_t, reverse_iterator<citer_t>>);
+
+            (void) ([](X a, const X ca) {
+                ASSERT_RET(a.rbegin(), riter_t, noexcept);
+                ASSERT_RET(ca.rbegin(), criter_t, noexcept);
+                ASSERT_RET(a.rend(), riter_t, noexcept);
+                ASSERT_RET(ca.rend(), criter_t, noexcept);
+
+                ASSERT_RET(a.crbegin(), criter_t, noexcept);
+                ASSERT_RET(ca.crbegin(), criter_t, noexcept);
+                ASSERT_RET(a.crend(), criter_t, noexcept);
+                ASSERT_RET(ca.crend(), criter_t, noexcept);
+            });
+        });
+
+        // [container.alloc.reqmts]
+        (void) ([](const X& c, X& t, X&& rv, A m, hive_limits limits) {
+            static_assert(is_same_v<typename X::allocator_type, A>);
+            ASSERT_RET(c.get_allocator(), A, noexcept);
+
+            TEST_DECL(X u(m))
+            TEST_DECL(X u(limits, m)) // hive-specific
+            if constexpr (Cpp17CopyInsertable) {
+                TEST_DECL(X u(t, m))
+            }
+            if constexpr (Cpp17MoveInsertable) {
+                TEST_DECL(X u(move(rv), m))
+            }
+        });
+
+        // [sequence.reqmts]
+        using another_rng_t    = custom_range<const T&, Alloc, input_iterator_tag, false, false, false>;
+        using another_r_rng_t  = custom_range<T&& /**/, Alloc, input_iterator_tag, false, false, false>;
+        using another_iter_t   = custom_range<const T&, Alloc, input_iterator_tag, true, false, false>::iterator;
+        using another_r_iter_t = custom_range<T&& /**/, Alloc, input_iterator_tag, true, false, false>::iterator;
+        (void) ([](X a, another_iter_t i, another_iter_t j, another_rng_t rg, initializer_list<T> il, size_ty n,
+                    citer_t p, citer_t q, citer_t q1, citer_t q2, T& t, T&& rv, A m, hive_limits limits,
+                    another_r_iter_t r_i, another_r_iter_t r_j, another_r_rng_t r_rg) {
+            // hive-specific, see [hive.cons] and [hive.modifiers]
+            if constexpr (Cpp17DefaultInsertable) {
+                TEST_DECL(X u(n, m))
+                TEST_DECL(X u(n, limits, m))
+                if constexpr (has_default_al) {
+                    TEST_DECL(X u(n))
+                    TEST_DECL(X u(n, limits))
+                }
+            }
+            if constexpr (Cpp17CopyInsertable) {
+                TEST_DECL(X u(n, t, m))
+                TEST_DECL(X u(n, t, limits, m))
+                TEST_DECL(X u(i, j, m))
+                TEST_DECL(X u(i, j, limits, m))
+                TEST_DECL(X u(from_range, rg, m))
+                TEST_DECL(X u(from_range, rg, limits, m))
+                TEST_DECL(X u(il, m))
+                TEST_DECL(X u(il, limits, m))
+                if constexpr (has_default_al) {
+                    TEST_DECL(X u(n, t))
+                    TEST_DECL(X u(n, t, limits))
+                    TEST_DECL(X u(i, j))
+                    TEST_DECL(X u(i, j, limits))
+                    TEST_DECL(X u(from_range, rg))
+                    TEST_DECL(X u(from_range, rg, limits))
+                    TEST_DECL(X u(il))
+                    TEST_DECL(X u(il, limits))
+                }
+                if constexpr (Cpp17CopyAssignable) {
+                    ASSERT_RET(a = il, X&);
+                }
+            }
+            if constexpr (Cpp17MoveInsertable) {
+                TEST_DECL(X u(r_i, r_j, m))
+                TEST_DECL(X u(r_i, r_j, limits, m))
+                TEST_DECL(X u(from_range, r_rg, m))
+                TEST_DECL(X u(from_range, r_rg, limits, m))
+                if constexpr (has_default_al) {
+                    TEST_DECL(X u(r_i, r_j))
+                    TEST_DECL(X u(r_i, r_j, limits))
+                    TEST_DECL(X u(from_range, r_rg))
+                    TEST_DECL(X u(from_range, r_rg, limits))
+                }
+            }
+
+            if constexpr (Cpp17CopyInsertable) {
+                ASSERT_RET(a.emplace(t), iter_t);
+                ASSERT_RET(a.emplace_hint(p, t), iter_t);
+                ASSERT_RET(a.insert(t), iter_t);
+                ASSERT_RET(a.insert(p, t), iter_t);
+                ASSERT_RET(a.insert(il), void);
+                ASSERT_RET(a.insert_range(rg), void);
+                ASSERT_RET(a.insert(n, t), void);
+                ASSERT_RET(a.insert(i, j), void);
+            }
+            if constexpr (Cpp17MoveInsertable) {
+                ASSERT_RET(a.emplace(move(rv)), iter_t);
+                ASSERT_RET(a.emplace_hint(p, move(rv)), iter_t);
+                ASSERT_RET(a.insert(move(rv)), iter_t);
+                ASSERT_RET(a.insert(p, move(rv)), iter_t);
+                ASSERT_RET(a.insert_range(r_rg), void);
+                ASSERT_RET(a.insert(r_i, r_j), void);
+            }
+            // end hive-specific
+
+            ASSERT_RET(a.erase(q), iter_t);
+            ASSERT_RET(a.erase(q1, q2), iter_t);
+            ASSERT_RET(a.clear(), void);
+
+            if constexpr (Cpp17CopyInsertable && Cpp17CopyAssignable) {
+                ASSERT_RET(a.assign(i, j), void);
+                ASSERT_RET(a.assign_range(rg), void);
+                ASSERT_RET(a.assign(il), void);
+                ASSERT_RET(a.assign(n, t), void);
+            }
+            if constexpr (Cpp17MoveInsertable && Cpp17MoveAssignable) {
+                ASSERT_RET(a.assign(r_i, r_j), void);
+                ASSERT_RET(a.assign_range(r_rg), void);
+            }
+        });
+
+        // [hive.operations]
+        (void) ([](hive_t cont, hive_t another_cont, const hive_t const_cont, cptr_t ptr, EqualPred equal_pr,
+                    LessPred less_pr) {
+            ASSERT_RET(cont.splice(another_cont), void);
+            ASSERT_RET(cont.splice(move(another_cont)), void);
+
+            ASSERT_RET(cont.unique(equal_pr), size_ty);
+            if constexpr (equality_comparable<T>) {
+                ASSERT_RET(cont.unique(), size_ty);
+            }
+
+            if constexpr (Cpp17MoveInsertable && Cpp17MoveAssignable && Cpp17Swappable) {
+                ASSERT_RET(cont.sort(less_pr), void);
+                if constexpr (requires(const T& l, const T& r) {
+                                  { l < r } -> boolean_testable;
+                              }) {
+                    ASSERT_RET(cont.sort(), void);
+                }
+            }
+
+            ASSERT_RET(cont.get_iterator(ptr), iter_t, noexcept);
+            ASSERT_RET(const_cont.get_iterator(ptr), citer_t, noexcept);
+        });
+
+        // [hive.erasure]
+        (void) ([](hive_t cont, const T val, EqualPred equal_pr) {
+            if constexpr (equality_comparable<T>) {
+                ASSERT_RET(erase(cont, val), size_ty);
+            }
+            ASSERT_RET(erase(cont, erase_proxy{equal_pr, raw_value_t{}}), size_ty);
+            ASSERT_RET(erase_if(cont, [](const T&) -> bool { abort(); }), size_ty);
+        });
+
+        // misc
+        (void) ([](hive_t cont, const hive_t const_cont, size_ty n, hive_limits limits) {
+            static_assert(bidirectional_iterator<iter_t>);
+            static_assert(bidirectional_iterator<citer_t>);
+            static_assert(bidirectional_iterator<riter_t>);
+            static_assert(bidirectional_iterator<criter_t>);
+
+            static_assert(three_way_comparable<iter_t, strong_ordering>);
+            static_assert(three_way_comparable<citer_t, strong_ordering>);
+            static_assert(three_way_comparable<riter_t, strong_ordering>);
+            static_assert(three_way_comparable<criter_t, strong_ordering>);
+
+            static_assert(!convertible_to<citer_t, iter_t>);
+            static_assert(!convertible_to<citer_t*, iter_t*>);
+
+            if constexpr (has_default_al) {
+                static_assert(noexcept(hive_t()) >= noexcept(Alloc()));
+            }
+            static_assert(noexcept(hive_t(declval<const Alloc&>())));
+            static_assert(noexcept(hive_t(declval<hive_t>())));
+            if constexpr ((allocator_traits<Alloc>::propagate_on_container_move_assignment::value
+                              || allocator_traits<Alloc>::is_always_equal::value)
+                          || (Cpp17MoveInsertable && Cpp17MoveAssignable)) {
+                static_assert(noexcept(cont = declval<hive_t>())
+                              >= (allocator_traits<Alloc>::propagate_on_container_move_assignment::value
+                                  || allocator_traits<Alloc>::is_always_equal::value));
+            }
+            static_assert(noexcept(cont.swap(cont)) >= (allocator_traits<Alloc>::propagate_on_container_swap::value
+                                                        || allocator_traits<Alloc>::is_always_equal::value));
+            static_assert(noexcept(swap(cont, cont)) >= noexcept(cont.swap(cont)));
+
+            ASSERT_RET(const_cont.capacity(), size_ty, noexcept);
+            ASSERT_RET(cont.reserve(n), void);
+            if constexpr (Cpp17MoveInsertable) {
+                ASSERT_RET(cont.shrink_to_fit(), void);
+            }
+            ASSERT_RET(cont.trim_capacity(), void, noexcept);
+            ASSERT_RET(cont.trim_capacity(n), void, noexcept);
+            ASSERT_RET(const_cont.block_capacity_limits(), hive_limits, noexcept);
+            ASSERT_RET(hive_t::block_capacity_default_limits(), hive_limits, noexcept);
+            ASSERT_RET(hive_t::block_capacity_hard_limits(), hive_limits, noexcept);
+            if constexpr (Cpp17MoveInsertable) {
+                ASSERT_RET(cont.reshape(limits), void);
+            }
+        });
+
+#undef ASSERT_RET
+#undef TEST_DECL
 
         return true;
     }
@@ -1105,6 +1403,9 @@ void allocator_matrix(Oper oper, Args&&... args) {
         oper(tests{EH::EH_allocator<T>{1}, EH::EH_allocator<T>{2}, args...});
         assert(init_states == EH::global_heap_states);
     }
+
+    static_assert(is_same_v<pmr::hive<T>, hive<T, pmr::polymorphic_allocator<T>>>);
+    static_assert(is_same_v<hive<T>, hive<T, allocator<T>>>);
 }
 
 template <class Raw>
@@ -1139,4 +1440,6 @@ int main() {
         tests{al, al, maker<value_type>}.test_all();
     }
 #endif // !defined(__EDG__)
+
+    static_assert(noexcept(hive_limits{0uz, 0uz}));
 }

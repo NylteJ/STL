@@ -35,10 +35,66 @@
 
 using namespace std;
 
+struct evil_type {
+    void operator&() const = delete;
+
+    template <class Other>
+    void operator,(const Other&) const
+        requires (!is_same_v<evil_type, Other>)
+    = delete;
+    friend void operator,(const auto&, const evil_type&) = delete;
+};
+
 namespace wrappers {
     struct wrapper_base {};
     template <class T>
     concept wrapper = derived_from<T, wrapper_base>;
+
+    template <class T>
+    struct __declspec(empty_bases) nontrivial final : wrapper_base, evil_type {
+        T value;
+
+        /* implicit */ nontrivial(T unwrapped) : value(unwrapped) {}
+
+        explicit nontrivial() : value() {}
+        nontrivial(const nontrivial& other) : value(other.value) {}
+        nontrivial(nontrivial&& other) noexcept(false) : value(move(other.value)) {}
+        nontrivial& operator=(const nontrivial& right) {
+            value = right.value;
+            return *this;
+        }
+        nontrivial& operator=(nontrivial&& right) noexcept(false) {
+            value = move(right.value);
+            return *this;
+        }
+        ~nontrivial() noexcept {}
+    };
+
+    template <class T>
+    struct move_only : wrapper_base {
+        T value;
+
+        move_only() = default;
+        /* implicit */ move_only(T unwrapped) : value(unwrapped) {}
+
+        move_only(const move_only&)            = delete;
+        move_only(move_only&&)                 = default;
+        move_only& operator=(const move_only&) = delete;
+        move_only& operator=(move_only&&)      = default;
+    };
+
+    template <class T>
+    struct pinned : wrapper_base {
+        T value;
+
+        pinned() = default;
+        /* implicit */ pinned(T unwrapped) : value(unwrapped) {}
+
+        pinned(const pinned&)            = delete;
+        pinned(pinned&&)                 = delete;
+        pinned& operator=(const pinned&) = delete;
+        pinned& operator=(pinned&&)      = delete;
+    };
 
     constexpr auto unwrap_equal_pred = [](const wrapper auto& left, const wrapper auto& right) -> bool {
         return left.value == right.value;
@@ -215,6 +271,10 @@ void test_matrix() {
     using namespace wrappers;
 
     allocator_matrix<Raw>(test_all, maker<Raw>, 42u);
+    allocator_matrix<nontrivial<Raw>>(test_all, maker<Raw>, 123456u);
+
+    allocator_matrix<move_only<Raw>>(static_test, maker<Raw>);
+    allocator_matrix<pinned<Raw>>(static_test, maker<Raw>);
 }
 
 using trivial_medium = uint16_t; // small skipfield

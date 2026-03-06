@@ -834,6 +834,36 @@ private:
 
     static constexpr bool EH_wrapper = is_same_v<T, EH::wrapper<raw_value_t>>;
 
+    static constexpr array limits_counts_mat = [] {
+        using lim    = hive_limits;
+        using counts = array<size_ty, 4>;
+        if constexpr (!small_al) {
+            return array{
+                pair{lim{3, 12}, counts{0, 1, 8, 20}},
+                pair{lim{8, 45}, counts{0, 3, 42, 60}},
+                pair{lim{32, 80}, counts{0, 6, 50, 100}},
+
+                pair{lim{8, 8}, counts{0, 1, 8, 20}},
+                pair{lim{42, 42}, counts{0, 3, 42, 60}},
+                pair{lim{50, 50}, counts{0, 6, 50, 100}},
+
+                pair{lim{1, 1}, counts{0, 1, 8, 20}},
+            };
+        } else {
+            return array{
+                pair{lim{2, 5}, counts{0, 1, 3, 6}},
+                pair{lim{4, 10}, counts{0, 2, 5, 11}},
+                pair{lim{9, 16}, counts{0, 3, 12, 19}},
+
+                pair{lim{3, 3}, counts{0, 1, 3, 6}},
+                pair{lim{5, 5}, counts{0, 2, 5, 11}},
+                pair{lim{12, 12}, counts{0, 3, 12, 19}},
+
+                pair{lim{1, 1}, counts{0, 1, 3, 6}},
+            };
+        }
+    }();
+
 public:
     tests(Alloc alloc_1, Alloc alloc_2, Maker raw_rng_maker, uint64_t random_seed = 142857,
         EqualPred equal_pred_ = EqualPred(), LessPred less_pred_ = LessPred())
@@ -1286,7 +1316,126 @@ private:
         }
     }
 
+    template <class Fn>
+    static void ctor_matrix(Fn func, Alloc& al, hive_limits limits) {
+        const auto default_limits = hive_t::block_capacity_default_limits();
+        if constexpr (has_default_al) {
+            func(Alloc(), default_limits);
+            func(Alloc(), limits, limits);
+        }
+        func(al, default_limits, al);
+        func(al, limits, limits, al);
+    }
+
+    static void ctor_constexpr()
+        requires is_same_v<Alloc, allocator<T>>
+    {
+        [[maybe_unused]] constexpr auto default_limits = hive_t::block_capacity_default_limits();
+        [[maybe_unused]] constexpr auto hard_limits    = hive_t::block_capacity_hard_limits();
+#pragma warning(push)
+#pragma warning(disable : 4640) // construction of local static object is not thread-safe
+#ifndef __EDG__ // TRANSITION, DevCom-11049681
+        static constinit hive_t m_hive1;
+        static constinit hive_t m_hive2(allocator<T>{});
+        static constinit hive_t m_hive3(default_limits);
+        static constinit hive_t m_hive4(hard_limits, allocator<T>{});
+#endif // !defined(__EDG__)
+#pragma warning(pop)
+    }
+
 public:
+    void test_ctors() {
+        DO_IF_VALID(ctor_constexpr());
+
+        for (const auto& [limits, counts] : limits_counts_mat) {
+            // default ctor
+            ctor_matrix(
+                [](const Alloc& expected_al, hive_limits expected_limits, auto&&... args) {
+                    hive_t cont(args...);
+                    assert(cont.get_allocator() == expected_al);
+                    assert_limits(cont, expected_limits);
+                    assert(cont.empty());
+                },
+                al_1, limits);
+
+            for (const auto& cnt : counts) {
+                // default fill ctor
+                if constexpr (Cpp17DefaultInsertable) {
+                    const T default_val = [] {
+                        if constexpr (tagged_al) {
+                            return T{tag_t{}};
+                        } else {
+                            return T{};
+                        }
+                    }();
+                    ctor_matrix(
+                        [&](const Alloc& expected_al, hive_limits expected_limits, auto&&... args) {
+                            hive_t cont(cnt, args...);
+                            assert(cont.get_allocator() == expected_al);
+                            assert_limits(cont, expected_limits);
+                            assert(ranges::all_of(cont, [&](const T& val) { return equal_pred(val, default_val); }));
+                            assert(cont.size() == cnt);
+                        },
+                        al_1, limits);
+                }
+
+                // fill ctor
+                if constexpr (Cpp17CopyInsertable) {
+                    ctor_matrix(
+                        [&](const Alloc& expected_al, hive_limits expected_limits, auto&&... args) {
+                            const T val{gen_raw_value()};
+                            hive_t cont(cnt, val, args...);
+                            assert(cont.get_allocator() == expected_al);
+                            assert_limits(cont, expected_limits);
+                            assert(ranges::all_of(cont, [&](const T& v) { return equal_pred(v, val); }));
+                            assert(cont.size() == cnt);
+                        },
+                        al_1, limits);
+                }
+
+                // range ctor
+                {
+                    const auto matrix = [&](auto get_rng) {
+                        if constexpr (ranges::sized_range<decltype(get_rng())>) { // TODO
+                            if constexpr (ranges::common_range<decltype(get_rng())>) {
+                                ctor_matrix(
+                                    [&](const Alloc& expected_al, hive_limits expected_limits, auto&&... args) {
+                                        auto&& rg = get_rng();
+                                        hive_t cont(ranges::begin(rg), ranges::end(rg), args...);
+                                        assert(cont.get_allocator() == expected_al);
+                                        assert_limits(cont, expected_limits);
+                                        assert_equal(cont, get_rng());
+                                    },
+                                    al_1, limits);
+                            }
+
+                            ctor_matrix(
+                                [&](const Alloc& expected_al, hive_limits expected_limits, auto&&... args) {
+                                    hive_t cont(from_range, get_rng(), args...);
+                                    assert(cont.get_allocator() == expected_al);
+                                    assert_limits(cont, expected_limits);
+                                    assert_equal(cont, get_rng());
+                                },
+                                al_1, limits);
+                        }
+                    };
+
+                    if constexpr (Cpp17CopyInsertable) {
+                        range_matrix<false>(matrix, al_1, cnt);
+                    }
+                    if constexpr (Cpp17MoveInsertable) {
+                        range_matrix<true>(matrix, al_1, cnt);
+                    }
+
+                    if constexpr (!is_same_v<raw_value_t, T>) {
+                        auto raw_rng = gen_raw_rng(cnt);
+                        matrix([&] -> auto& { return raw_rng; });
+                    }
+                }
+            }
+        }
+    }
+
     void test_EH()
         requires (EH_al && EH_wrapper);
 
@@ -1294,6 +1443,7 @@ public:
         static_assert(static_test());
 
         test_limits();
+        test_ctors();
 
         DO_IF_VALID(test_EH());
     }
@@ -1580,7 +1730,42 @@ namespace EH {
 template <class Alloc, class Maker, class T, class EqualPred, class LessPred>
 void tests<Alloc, Maker, T, EqualPred, LessPred>::test_EH()
     requires (EH_al && EH_wrapper)
-{}
+{
+    using namespace EH;
+
+    // ctor
+    for (const auto& [limits, counts] : limits_counts_mat) {
+        for (const auto& cnt : counts) {
+            // default fill
+            EH::test([&] { hive_t cont(cnt, limits, al_1); });
+            // fill
+            {
+                const T val{gen_raw_value()};
+                EH::test([&] { hive_t cont(cnt, val, limits, al_1); });
+            }
+            // range
+            range_matrix<false>(
+                [&](auto get_rng) {
+                    if constexpr (ranges::sized_range<decltype(get_rng())>) { // TODO
+                        if constexpr (ranges::common_range<decltype(get_rng())>) {
+                            EH::test([&] {
+                                auto&& rg = get_rng();
+                                do_not_test_above();
+                                hive_t cont(ranges::begin(rg), ranges::end(rg), limits, al_1);
+                            });
+                        }
+
+                        EH::test([&] {
+                            auto&& rg = get_rng();
+                            do_not_test_above();
+                            hive_t cont(from_range, rg, limits, al_1);
+                        });
+                    }
+                },
+                al_1, cnt);
+        }
+    }
+}
 
 template <class T, class Oper, class... Args>
 void allocator_matrix(Oper oper, Args&&... args) {

@@ -487,6 +487,27 @@ namespace allocators {
 
         constexpr bool operator==(const small_allocator&) const = default;
     };
+
+    template <class T>
+    struct max_size_0_allocator {
+        using value_type = T;
+
+        max_size_0_allocator() = default;
+        template <class U>
+        explicit max_size_0_allocator(max_size_0_allocator<U>) {}
+
+        size_t max_size() const noexcept {
+            return 0;
+        }
+        T* allocate(size_t) {
+            throw bad_alloc{};
+        }
+        void deallocate(T*, size_t) noexcept {
+            assert(false);
+        }
+
+        bool operator==(const max_size_0_allocator&) const = default;
+    };
 } // namespace allocators
 
 template <class Ref, class Alloc, derived_from<input_iterator_tag> IterConcept, bool Common, bool SizedRange,
@@ -1153,6 +1174,20 @@ public:
         return true;
     }
 
+    constexpr void test_limits() {
+        // [hive.overview]/5
+        const auto hard_limits    = hive_t::block_capacity_hard_limits();
+        const auto default_limits = hive_t::block_capacity_default_limits();
+        assert(hard_limits.min <= default_limits.min);
+        assert(default_limits.min <= default_limits.max);
+        assert(default_limits.max <= hard_limits.max);
+        if constexpr (has_default_al
+                      || !requires(const Alloc& al) { al.max_size(); }) { // FIXME: see `block_capacity_hard_limits()`
+            assert(hard_limits.max <= allocator_traits<Alloc>::max_size(al_1));
+            assert(hard_limits.max <= allocator_traits<Alloc>::max_size(al_2));
+        }
+    }
+
 private:
     template <bool Move, class Fn>
     void range_matrix(Fn func, Alloc& al, size_ty cnt) {
@@ -1210,7 +1245,7 @@ public:
     void test_all() {
         static_assert(static_test());
 
-        // TODO...
+        test_limits();
     }
 };
 
@@ -1404,6 +1439,13 @@ void allocator_matrix(Oper oper, Args&&... args) {
         assert(init_states == EH::global_heap_states);
     }
 
+    // special
+    {
+        const auto null_al = max_size_0_allocator<T>{};
+        assert(null_al.max_size() == 0);
+        tests{null_al, null_al, args...}.test_limits();
+    }
+
     static_assert(is_same_v<pmr::hive<T>, hive<T, pmr::polymorphic_allocator<T>>>);
     static_assert(is_same_v<hive<T>, hive<T, allocator<T>>>);
 }
@@ -1440,6 +1482,13 @@ int main() {
         tests{al, al, maker<value_type>}.test_all();
     }
 #endif // !defined(__EDG__)
+
+    // giant element limits
+    {
+        using value_type = array<uint8_t, 0x7fffffff - 1>;
+        const allocator<value_type> al{};
+        tests{al, al, [](auto&&...) -> vector<value_type> { abort(); }}.test_limits();
+    }
 
     static_assert(noexcept(hive_limits{0uz, 0uz}));
 }

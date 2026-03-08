@@ -1486,6 +1486,75 @@ private:
     }
 
 public:
+    // also including three-way comparison
+    void test_iteration() {
+        hive_matrix(
+            [](hive_t& cont) {
+                const auto cont_size = cont.size();
+                const auto cont_diff = static_cast<diff_t>(cont_size);
+                const auto half_diff = static_cast<diff_t>(cont_diff / 2);
+
+                const auto test = [&]<class First, class Last>(const First first, const Last last) {
+                    auto iter = next(first, cont_diff); // TODO: this will make more sense in the future
+
+                    const auto middle = next(first, half_diff);
+
+                    diff_t i = cont_diff;
+                    for (; i != half_diff; --i) {
+                        assert(iter > middle);
+                        assert((iter <=> middle) == strong_ordering::greater);
+                        --iter;
+                        assert(iter < last);
+                        assert((iter <=> last) == strong_ordering::less);
+                    }
+                    assert(iter == middle);
+                    assert((iter <=> middle) == strong_ordering::equal);
+                    for (; i != 0; --i) {
+                        assert(iter > first);
+                        assert((iter <=> first) == strong_ordering::greater);
+                        --iter;
+                        assert(iter < middle);
+                        assert((iter <=> middle) == strong_ordering::less);
+                    }
+                    assert(iter == first);
+                    assert((iter <=> first) == strong_ordering::equal);
+
+                    for (; i != half_diff; ++i) {
+                        assert(iter < middle);
+                        assert((iter <=> middle) == strong_ordering::less);
+                        ++iter;
+                        assert(iter > first);
+                        assert((iter <=> first) == strong_ordering::greater);
+                    }
+                    assert(iter == middle);
+                    assert((iter <=> middle) == strong_ordering::equal);
+                    for (; i != cont_diff; ++i) {
+                        assert(iter < last);
+                        assert((iter <=> last) == strong_ordering::less);
+                        ++iter;
+                        assert(iter > middle);
+                        assert((iter <=> middle) == strong_ordering::greater);
+                    }
+                    assert(iter == last);
+                    assert((iter <=> last) == strong_ordering::equal);
+                };
+
+                test(cont.begin(), cont.end());
+                test(cont.begin(), cont.cend());
+                test(cont.cbegin(), cont.end());
+                test(cont.cbegin(), cont.cend());
+
+                test(cont.rbegin(), cont.rend());
+                test(cont.rbegin(), cont.crend());
+                test(cont.crbegin(), cont.rend());
+                test(cont.crbegin(), cont.crend());
+            },
+            al_1, limits_counts_mat);
+
+        assert(iter_t{} == iter_t{});
+        assert((citer_t{} <=> iter_t{}) == strong_ordering::equal);
+    }
+
     void test_EH()
         requires (EH_al && EH_wrapper);
 
@@ -1494,6 +1563,7 @@ public:
 
         test_limits();
         test_ctors();
+        test_iteration();
 
         DO_IF_VALID(test_EH());
     }

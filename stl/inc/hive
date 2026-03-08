@@ -78,6 +78,12 @@ public:
     using reverse_iterator       = _STD reverse_iterator<iterator>;
     using const_reverse_iterator = _STD reverse_iterator<const_iterator>;
 
+private:
+#ifdef _ENABLE_STL_INTERNAL_CHECK
+    constexpr void _Check_invariants() const noexcept {}
+#endif // ^^^ defined(_ENABLE_STL_INTERNAL_CHECK) ^^^
+
+public:
     // [hive.cons], construct/copy/destroy
     constexpr hive() noexcept(noexcept(_Alloc())) : hive(_Alloc()) {}
     constexpr explicit hive(const _Alloc& _Allocator) noexcept;

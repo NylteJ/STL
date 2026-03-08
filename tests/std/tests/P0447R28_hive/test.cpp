@@ -1436,6 +1436,56 @@ public:
         }
     }
 
+private:
+    template <class Fn>
+    void hive_fn_matrix(Fn func, Alloc& al, hive_limits limits, size_ty cnt_hint) {
+        // all these functions return a unique_ptr to ensure no hive move constructor is called
+        func([&] {
+            // full hive
+            auto cont = make_unique<hive_t>(from_range, gen_raw_rng(cnt_hint), limits, al);
+            return cont;
+        });
+
+        // TODO: We'll add more later...
+    }
+    template <class Fn>
+    void hive_matrix(Fn func, Alloc& al, hive_limits limits, size_ty cnt_hint) {
+        hive_fn_matrix([&](auto&& get_cont) { func(*get_cont()); }, al, limits, cnt_hint);
+    }
+
+    template <class Fn>
+    void hive_matrix_2(Fn func, Alloc& alloc_1, Alloc& alloc_2, hive_limits limits_1, hive_limits limits_2,
+        size_ty cnth_1, size_ty cnth_2) {
+        hive_fn_matrix(
+            [&](auto&& get_hive_1) {
+                hive_fn_matrix(
+                    [&](auto&& get_hive_2) { func(*get_hive_1(), *get_hive_2()); }, alloc_2, limits_2, cnth_2);
+            },
+            alloc_1, limits_1, cnth_1);
+    }
+
+    template <class Fn, class Matrix>
+    void hive_matrix(Fn func, Alloc& al, const Matrix& matrix) {
+        for (const auto& [limits, counts] : matrix) {
+            for (const auto& cnt : counts) {
+                hive_matrix(func, al, limits, cnt);
+            }
+        }
+    }
+    template <class Fn, class Matrix>
+    void hive_matrix_2(Fn func, Alloc& alloc_1, Alloc& alloc_2, const Matrix& matrix) {
+        for (const auto& [limits_1, counts_1] : matrix) {
+            for (const auto& cnt_1 : counts_1) {
+                for (const auto& [limits_2, counts_2] : matrix) {
+                    for (const auto& cnt_2 : counts_2) {
+                        hive_matrix_2(func, alloc_1, alloc_2, limits_1, limits_2, cnt_1, cnt_2);
+                    }
+                }
+            }
+        }
+    }
+
+public:
     void test_EH()
         requires (EH_al && EH_wrapper);
 

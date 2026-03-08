@@ -1491,4 +1491,7 @@ int main() {
     }
 
     static_assert(noexcept(hive_limits{0uz, 0uz}));
+
+    // nonstandard test, SCARY
+    static_assert(is_same_v<hive<int>::iterator, pmr::hive<int>::iterator>);
 }

@@ -4737,7 +4737,11 @@ private:
         return _Count;
     }
 
+#ifdef _ENABLE_STL_INTERNAL_CHECK
+public:
+#else // ^^^ defined(_ENABLE_STL_INTERNAL_CHECK) / !defined(_ENABLE_STL_INTERNAL_CHECK) vvv
 private:
+#endif // ^^^ !defined(_ENABLE_STL_INTERNAL_CHECK) ^^^
     _MSVC_NO_UNIQUE_ADDRESS _Alty _Al;
     _Scary_val _Myval;
 };

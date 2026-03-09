@@ -1557,6 +1557,16 @@ private:
             assert(cont->capacity() >= cap + siz);
             return cont;
         });
+        if (cnt_hint != 0) {
+            func([&] {
+                // hive close to renumbering
+                // note: nonstandard test method
+                auto cont        = make_unique<hive_t>(from_range, gen_raw_rng(cnt_hint), limits, al);
+                using order_id_t = decltype(cont->_Myval._Sent_block._Order_id);
+                cont->_Myval._Sent_block._Prev->_Order_id = static_cast<order_id_t>(-2);
+                return cont;
+            });
+        }
     }
     template <class Fn>
     void hive_matrix(Fn func, Alloc& al, hive_limits limits, size_ty cnt_hint) {

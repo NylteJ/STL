@@ -1287,10 +1287,15 @@ private:
     }
 
 public:
+    void test_EH()
+        requires (EH_al && EH_wrapper);
+
     void test_all() {
         static_assert(static_test());
 
         test_limits();
+
+        DO_IF_VALID(test_EH());
     }
 };
 
@@ -1463,7 +1468,119 @@ namespace EH {
 
         bool operator==(const EH_allocator&) const = default;
     };
+
+    operation_counts init_counts;
+    vector<pair<operation_counts, operation_counts>> recorded_counts;
+    bool recording = false;
+    void do_not_test_above() {
+        if (recording) {
+            init_counts = global_counts;
+        }
+    }
+    void do_not_test_below() {
+        if (recording && init_counts != global_counts) {
+            recorded_counts.emplace_back(init_counts, global_counts);
+            init_counts = global_counts;
+        }
+    }
+
+    // Runs `func`, recording all allocations, assignments, and constructions;
+    // then repeatedly reruns `func`, throwing at each previously recorded throwing point.
+    // Use `do_not_test_above` and `do_not_test_below` to suppress throws.
+    template <class Fn>
+    void test(Fn func) {
+        recorded_counts.clear();
+        global_counts.reset();
+        const auto init_heap_states = global_heap_states;
+
+        recording = true;
+        do_not_test_above();
+        func();
+        do_not_test_below();
+        recording = false;
+        assert(global_heap_states == init_heap_states);
+
+        for (const auto& [begin_counts, end_counts] : recorded_counts) {
+            for (size_t alloc_idx = begin_counts.allocation; alloc_idx != end_counts.allocation; ++alloc_idx) {
+                global_countdown.allocation = alloc_idx;
+                assert_throw<my_bad_alloc>(func);
+                assert(global_heap_states == init_heap_states);
+            }
+            global_countdown.allocation = nullopt;
+
+            for (size_t cons_idx = begin_counts.construction; cons_idx != end_counts.construction; ++cons_idx) {
+                global_countdown.construction = cons_idx;
+                assert_throw<my_bad_construct>(func);
+                assert(global_heap_states == init_heap_states);
+            }
+            global_countdown.construction = nullopt;
+
+            for (size_t assign_idx = begin_counts.assignment; assign_idx != end_counts.assignment; ++assign_idx) {
+                global_countdown.assignment = assign_idx;
+                assert_throw<my_bad_assign>(func);
+                assert(global_heap_states == init_heap_states);
+            }
+            global_countdown.assignment = nullopt;
+        }
+    }
+
+    struct throw_pred_err {};
+
+    struct throw_bool {
+        optional<bool> value;
+        /* implicit */ operator bool() const {
+            return value ? *value : throw throw_pred_err{};
+        }
+
+        throw_bool operator!() const noexcept {
+            return {value.transform([](bool val) { return !val; })};
+        }
+    };
+    static_assert(boolean_testable<throw_bool>);
+
+    template <class Pred>
+    struct throw_pred {
+        Pred pred;
+        size_t countdown;
+
+        throw_pred(const Pred& pr, size_t cd) : pred(pr), countdown(cd) {}
+
+        throw_pred(const throw_pred&)            = delete;
+        throw_pred& operator=(const throw_pred&) = delete;
+
+        template <class... Args>
+        throw_bool operator()(Args&&... args) noexcept {
+            if (countdown == 0) {
+                return {nullopt};
+            }
+            --countdown;
+            return {pred(forward<Args>(args)...)};
+        }
+    };
+
+    template <class Fn, class Pred>
+    void test_pred(Fn func, Pred pred) {
+        const auto init_heap_state = global_heap_states;
+
+        size_t pred_call_count;
+        {
+            counted_pred counter{pred};
+            func(ref(counter));
+            pred_call_count = counter.cnt;
+        }
+
+        for (size_t throw_on = 0; throw_on != pred_call_count; ++throw_on) {
+            throw_pred tpred{pred, throw_on};
+            assert_throw<throw_pred_err>([&] { func(ref(tpred)); });
+            assert(global_heap_states == init_heap_state);
+        }
+    }
 } // namespace EH
+
+template <class Alloc, class Maker, class T, class EqualPred, class LessPred>
+void tests<Alloc, Maker, T, EqualPred, LessPred>::test_EH()
+    requires (EH_al && EH_wrapper)
+{}
 
 template <class T, class Oper, class... Args>
 void allocator_matrix(Oper oper, Args&&... args) {
@@ -1509,6 +1626,11 @@ void test_matrix() {
     allocator_matrix<pinned<Raw>>(static_test, maker<Raw>);
 
     static_assert(tests<allocators::tagged_allocator<tagged_constructible<Raw>>, decltype(maker<Raw>)>::static_test());
+
+    {
+        using alloc = EH::EH_allocator<EH::wrapper<Raw>>;
+        tests{alloc{1}, alloc{2}, maker<Raw>}.test_EH();
+    }
 }
 
 using trivial_medium = uint16_t; // small skipfield

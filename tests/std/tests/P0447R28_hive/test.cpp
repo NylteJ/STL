@@ -35,6 +35,11 @@
 
 using namespace std;
 
+#define DO_IF_VALID(expr)               \
+    if constexpr (requires { expr; }) { \
+        expr;                           \
+    }
+
 template <class B>
 concept boolean_testable_impl = convertible_to<B, bool>;
 template <class B>
@@ -731,6 +736,32 @@ private:
     bool begin_has_been_called = false;
 };
 
+template <class Pred>
+struct counted_pred {
+    Pred pred;
+    size_t cnt = 0;
+
+    explicit counted_pred(const Pred& pr) : pred(pr) {}
+
+    counted_pred(const counted_pred&)            = delete;
+    counted_pred& operator=(const counted_pred&) = delete;
+
+    template <class... Args>
+    decltype(auto) operator()(Args&&... args) {
+        ++cnt;
+        return pred(forward<Args>(args)...);
+    }
+};
+
+template <class Exception, class Fn>
+void assert_throw(Fn func) noexcept {
+    try {
+        func();
+        assert(false && "should throw, but returned");
+    } catch (const Exception&) {
+    }
+}
+
 namespace EH {
     template <class T>
     struct EH_allocator;
@@ -851,6 +882,20 @@ private:
             assert(ranges::is_permutation(
                 unwrap_range(cont), unwrap_range(forward<Expected>(expect)) | ranges::to<vector>()));
         }
+    }
+
+    static vector<citer_t> get_hive_nonend_iters(const hive_t& cont) {
+        vector<citer_t> ret(cont.size());
+        auto it = cont.begin();
+        for (size_t i = 0; i != cont.size(); ++i) {
+            ret[i] = it;
+            ++it;
+        }
+        return ret;
+    }
+
+    static vector<raw_value_t> unwrap_to_vec(const hive_t& cont) {
+        return unwrap_range(cont) | ranges::to<vector>();
     }
 
     static void try_forbid_alloc() {

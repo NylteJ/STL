@@ -2354,4 +2354,83 @@ SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
     </Expand>
   </Type>
 
+  <!-- skipfield ver. -->
+  <Type Name="std::hive&lt;*&gt;">
+    <DisplayString>{{ size={_Myval._Size} }}</DisplayString>
+    <Expand>
+      <Item Name="[capacity]" ExcludeView="simple">_Myval._Capacity</Item>
+      <Item Name="[allocator]" ExcludeView="simple">_Al</Item>
+      <Synthetic Name="[current_limits]" ExcludeView="simple">
+        <!-- avoid things like `{min=64 '@' max=100 'd' }` -->
+        <DisplayString>{{min={(size_t) (_Myval._Limits.min)} max={(size_t) (_Myval._Limits.max)} }}</DisplayString>
+      </Synthetic>
+
+      <CustomListItems Condition="_Myval._Size != 0">
+        <Variable Name="block" InitialValue="_Myval._Sent_block._Next"/>
+        <Variable Name="sentinel" InitialValue="&amp;_Myval._Sent_block"/>
+        <Variable Name="index" InitialValue="0"/>
+        <Variable Name="cur_block_capacity" InitialValue="0"/>
+        <Size>_Myval._Size</Size>
+        <Loop>
+          <Exec>index = block->_Skip[0]</Exec>
+          <Exec>cur_block_capacity = block->_Capacity</Exec>
+          <Loop>
+            <Item>block->_Data[index]._Value</Item>
+            <Exec>index += 1 + block->_Skip[index + 1]</Exec>
+            <Break Condition="index == cur_block_capacity"/>
+          </Loop>
+          <Break Condition="block->_Next == sentinel"/>
+          <Exec>block = block->_Next</Exec>
+        </Loop>
+      </CustomListItems>
+    </Expand>
+  </Type>
+
+  <!-- bitset ver.; less common, so lower priority to reduce natvis errors -->
+  <Type Name="std::hive&lt;*&gt;" Priority="MediumLow">
+    <DisplayString>{{ size={_Myval._Size} }}</DisplayString>
+    <Expand>
+      <Item Name="[capacity]" ExcludeView="simple">_Myval._Capacity</Item>
+      <Item Name="[allocator]" ExcludeView="simple">_Al</Item>
+      <Synthetic Name="[current_limits]" ExcludeView="simple">
+        <!-- avoid things like `{min=64 '@' max=100 'd' }` -->
+        <DisplayString>{{min={(size_t) (_Myval._Limits.min)} max={(size_t) (_Myval._Limits.max)} }}</DisplayString>
+      </Synthetic>
+
+      <CustomListItems Condition="_Myval._Size != 0">
+        <Variable Name="block" InitialValue="_Myval._Sent_block._Next"/>
+        <Variable Name="sentinel" InitialValue="&amp;_Myval._Sent_block"/>
+        <Variable Name="index" InitialValue="0"/>
+        <Variable Name="cur_block_capacity" InitialValue="0"/>
+        <Variable Name="bitset_word_bits" InitialValue="_Myval._Sent_block._Empty._Word_bits"/>
+        <Size>_Myval._Size</Size>
+        <Loop>
+          <Exec>index = block->_Empty._Words[0] &amp; 1 ? block->_Data[0]._Skip : 0</Exec>
+          <Exec>cur_block_capacity = block->_Capacity</Exec>
+          <Loop>
+            <Item>block->_Data[index]._Value</Item>
+            <Exec>index += (block->_Empty._Words[(index + 1) / bitset_word_bits] &amp; (1ull &lt;&lt; (index + 1) % bitset_word_bits)) ? block->_Data[index + 1]._Skip + 1 : 1</Exec>
+            <Break Condition="index == cur_block_capacity"/>
+          </Loop>
+          <Break Condition="block->_Next == sentinel"/>
+          <Exec>block = block->_Next</Exec>
+        </Loop>
+      </CustomListItems>
+    </Expand>
+  </Type>
+
+  <!-- This is for _ITERATOR_DEBUG_LEVEL == 0 and must have lower priority. -->
+  <Type Name="std::_Hive_iterators_provider&lt;*&gt;::_Iter&lt;*&gt;" Priority="MediumLow">
+    <SmartPointer Usage="Minimal">&amp;_Blk._Blk->_Data[_Index]._Value</SmartPointer>
+    <DisplayString Condition="_Blk._Blk->_Order_id == _Sentinel_ord_id">end</DisplayString>
+  </Type>
+
+  <!-- This is for _ITERATOR_DEBUG_LEVEL != 0 and must have higher priority. -->
+  <Type Name="std::_Hive_iterators_provider&lt;*&gt;::_Iter&lt;*&gt;" Priority="Medium">
+    <SmartPointer Usage="Minimal">&amp;_Blk._Blk->_Data[_Index]._Value</SmartPointer>
+    <DisplayString Condition="_Mypreviter == nullptr">value initialized</DisplayString>
+    <DisplayString Condition="_Mypreviter != nullptr &amp;&amp; _Myblock == nullptr">invalid</DisplayString>
+    <DisplayString Condition="_Mypreviter != nullptr &amp;&amp; _Myblock != nullptr &amp;&amp; _Blk._Blk->_Order_id == _Sentinel_ord_id">end</DisplayString>
+  </Type>
+
 </AutoVisualizer>

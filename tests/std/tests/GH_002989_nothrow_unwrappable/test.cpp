@@ -14,6 +14,10 @@
 #include <ranges>
 #endif
 
+#if _HAS_CXX26
+#include <hive>
+#endif
+
 using namespace std;
 
 #if _HAS_CXX17
@@ -116,5 +120,14 @@ int main() {
     do_full_test<BidiIterUnwrapThrowing, false>();
 #if _HAS_CXX17
     do_full_test<path::iterator, false>();
+#endif
+
+#if _HAS_CXX26
+    do_full_test<hive<char>::iterator>();
+    do_full_test<hive<char>::const_iterator>();
+    do_full_test<hive<short>::iterator>();
+    do_full_test<hive<short>::const_iterator>();
+    do_full_test<hive<int>::iterator>();
+    do_full_test<hive<int>::const_iterator>();
 #endif
 }

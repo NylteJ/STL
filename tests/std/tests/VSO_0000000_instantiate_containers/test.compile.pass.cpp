@@ -7,6 +7,9 @@
 #include <cstdio>
 #include <deque>
 #include <forward_list>
+#if _HAS_CXX26
+#include <hive>
+#endif // _HAS_CXX26
 #include <initializer_list>
 #include <iterator>
 #include <list>
@@ -955,3 +958,25 @@ void complex_test() {
     STATIC_ASSERT(is_same_v<decltype(pow(cf, cf)), complex<float>>);
     STATIC_ASSERT(is_same_v<decltype(pow(f, cf)), complex<float>>);
 }
+
+#if _HAS_CXX26
+void hive_test() {
+    hive<int> value{};
+    swap_test(value);
+
+    for_each_tuple_element(get_all_iterator_types_for(value), [&](auto c) {
+        hive<int> another(begin(c), end(c));
+        hive<int> another2(begin(c), end(c), value.block_capacity_limits());
+#ifndef _M_CEE // TRANSITION, VSO-1659496
+        validating_converter arr[1]{};
+        hive<int> another_no_adl(+arr, +arr);
+        hive<int> another_no_adl2(+arr, +arr, value.block_capacity_limits());
+#endif // ^^^ no workaround ^^^
+    });
+
+    insert_associative_direct_test(value);
+    emplace_test(value);
+    insert_with_iterator_test(value);
+    erase_if_test(value);
+}
+#endif // _HAS_CXX26

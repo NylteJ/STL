@@ -29,6 +29,10 @@
 #include <span>
 #endif // _HAS_CXX20
 
+#if _HAS_CXX26
+#include <hive>
+#endif // _HAS_CXX26
+
 #include <experimental_filesystem.hpp>
 
 using namespace std;
@@ -172,6 +176,12 @@ int main() {
 #if _HAS_CXX20
     test_iterator<span<int>::iterator>();
 #endif // _HAS_CXX20
+
+#if _HAS_CXX26
+    test_container<hive<char>>();
+    test_container<hive<short>>();
+    test_container<hive<int>>();
+#endif // _HAS_CXX26
 
     test_iterator<sregex_iterator>();
     test_iterator<sregex_token_iterator>();

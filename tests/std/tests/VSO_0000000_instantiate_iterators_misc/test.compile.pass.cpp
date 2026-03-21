@@ -54,6 +54,9 @@
 #include <forward_list>
 #include <fstream>
 #include <functional>
+#if _HAS_CXX26
+#include <hive>
+#endif // _HAS_CXX26
 #include <initializer_list>
 #include <iomanip>
 #include <ios>
@@ -761,6 +764,16 @@ void iterators_test() {
     (void) ssize(lst);
     (void) ssize(vec);
 #endif // _HAS_CXX20
+
+#if _HAS_CXX26
+    bidi_iterators_test<hive<int>>();
+    nonmember_iterator_functions_test<hive<int>>();
+    nonmember_reverse_iterator_functions_test<hive<int>>();
+    hive<int> hiv{6};
+    (void) size(hiv);
+    (void) empty(hiv);
+    (void) ssize(hiv);
+#endif // _HAS_CXX26
 
     deque<int> value{1, 2, 3};
     auto it  = inserter(value, begin(value));

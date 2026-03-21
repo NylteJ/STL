@@ -43,6 +43,9 @@ import <future>;
 #if TEST_STANDARD >= 23
 import <generator>;
 #endif // TEST_STANDARD >= 23
+#if TEST_STANDARD >= 26
+import <hive>;
+#endif // TEST_STANDARD >= 26
 import <initializer_list>;
 import <iomanip>;
 import <ios>;

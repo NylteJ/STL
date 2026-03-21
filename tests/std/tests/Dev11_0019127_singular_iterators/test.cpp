@@ -27,6 +27,10 @@
 #include <utility>
 #include <vector>
 
+#if _HAS_CXX26
+#include <hive>
+#endif // _HAS_CXX26
+
 using namespace std;
 
 template <typename C>
@@ -110,6 +114,33 @@ void test_set() {
     (void) x8;
 }
 
+template <typename H>
+void test_hive() {
+    H c;
+    c.insert(11);
+    c.insert(22);
+    c.insert(33);
+
+    typename H::iterator i1 = c.begin(), i2 = c.begin(), i3 = c.begin(), i4 = c.begin();
+    typename H::iterator x1, x2, x3, x4, x5, x6;
+
+    x1 = i1;
+    assert(*x1 == 11);
+
+    x2 = move(i2);
+    assert(*x2 == 11);
+
+    i3 = x3;
+
+    i4 = move(x4);
+
+    auto x7(x5);
+    auto x8(move(x6));
+
+    (void) x7;
+    (void) x8;
+}
+
 int main() {
     test_sequence<vector<int>>();
     test_sequence<deque<int>>();
@@ -124,6 +155,12 @@ int main() {
     test_map<unordered_multimap<int, int>>();
     test_set<unordered_set<int>>();
     test_set<unordered_multiset<int>>();
+
+#if _HAS_CXX26
+    test_hive<hive<char>>();
+    test_hive<hive<short>>();
+    test_hive<hive<int>>();
+#endif // _HAS_CXX26
 
     {
         forward_list<int> f;

@@ -350,6 +350,29 @@ void test_generator() {
 }
 #endif // TEST_STANDARD >= 23
 
+#if TEST_STANDARD >= 26
+void test_hive() {
+    using namespace std;
+    puts("Testing <hive>.");
+
+    const auto hard_limits = hive<int>::block_capacity_hard_limits();
+    hive_limits limits{hard_limits.min, hard_limits.max};
+
+    hive h{10, 20, 30, 40, 50};
+    static_assert(is_same_v<decltype(h), hive<int>>);
+    h.reshape(hard_limits);
+    assert(h.size() == 5);
+    assert(erase_if(h, [](int x) { return 20 <= x && x <= 40; }) == 3);
+    assert(h.size() == 2);
+    assert(next(h.begin(), 2) == h.cend());
+    ranges::for_each(h, [](int x) { assert(x % 10 == 0); });
+    h.clear();
+    assert(h.empty());
+    h.trim_capacity();
+    assert(h.capacity() == 0);
+}
+#endif // TEST_STANDARD >= 26
+
 void test_initializer_list() {
     using namespace std;
     puts("Testing <initializer_list>.");
@@ -1261,6 +1284,9 @@ void all_cpp_header_tests() {
 #if TEST_STANDARD >= 23
     test_generator();
 #endif // TEST_STANDARD >= 23
+#if TEST_STANDARD >= 26
+    test_hive();
+#endif // TEST_STANDARD >= 26
     test_initializer_list();
     test_iomanip();
     test_ios();

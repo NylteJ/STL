@@ -15,6 +15,10 @@
 #include <utility>
 #include <vector>
 
+#if _HAS_CXX26
+#include <hive>
+#endif // _HAS_CXX26
+
 using namespace std;
 
 pmr::monotonic_buffer_resource mr;
@@ -133,3 +137,14 @@ void test_stack2(pmr::vector<int>& pc) {
     [[maybe_unused]] auto x = SfinaeTester<stack>::test(pc, &mr);
     [[maybe_unused]] auto y = SfinaeTester<stack>::test(move(pc), &mr);
 }
+
+#if _HAS_CXX26
+template <class T>
+void test_hive(pmr::hive<T>& px) {
+    [[maybe_unused]] auto x = SfinaeTester<hive>::test(px, &mr);
+    [[maybe_unused]] auto y = SfinaeTester<hive>::test(move(px), &mr);
+}
+template void test_hive(pmr::hive<char>&);
+template void test_hive(pmr::hive<short>&);
+template void test_hive(pmr::hive<int>&);
+#endif // _HAS_CXX26

@@ -15,6 +15,10 @@
 #include <vector>
 #include <xutility>
 
+#if _HAS_CXX26
+#include <hive>
+#endif
+
 #include <range_algorithm_support.hpp>
 
 using namespace std;
@@ -124,6 +128,12 @@ void test_classic_ranges() {
 
 #if _HAS_CXX23
     test_classic_range<ranges::as_rvalue_view<string_view>>();
+#endif
+
+#if _HAS_CXX26
+    test_classic_range<hive<char>>();
+    test_classic_range<hive<short>>();
+    test_classic_range<hive<int>>();
 #endif
 }
 

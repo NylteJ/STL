@@ -5,6 +5,9 @@
 #include <deque>
 #include <forward_list>
 #include <functional>
+#if _HAS_CXX26
+#include <hive>
+#endif // _HAS_CXX26
 #include <iterator>
 #include <list>
 #include <map>
@@ -442,6 +445,13 @@ template class std::basic_syncbuf<char, std::char_traits<char>, fancy_allocator<
 template class std::basic_osyncstream<char, std::char_traits<char>, fancy_allocator<char>>;
 #endif
 
+#if _HAS_CXX26
+template class std::hive<uint8_t, fancy_allocator<uint8_t>>;
+template class std::hive<T1, fancy_allocator<T1>>;
+template class std::hive<T2, fancy_allocator<T2>>;
+template class std::hive<T3, fancy_allocator<T3>>;
+#endif // _HAS_CXX26
+
 #if _HAS_CXX23
 STATIC_ASSERT(std::is_standard_layout_v<std::allocation_result<fancy_pointer<int>>>);
 STATIC_ASSERT(!std::is_trivially_copyable_v<std::allocation_result<fancy_pointer<int>>>);
@@ -459,6 +469,10 @@ void instantiate() {
     random_iterators_test<std::vector<bool, fancy_allocator<bool>>>();
     bidi_iterators_test<std::set<int, std::less<>, fancy_allocator<int>>>();
     random_iterators_test<std::basic_string<char, std::char_traits<char>, fancy_allocator<char>>>();
+#if _HAS_CXX26
+    bidi_iterators_test<std::hive<uint8_t, fancy_allocator<uint8_t>>>();
+    bidi_iterators_test<std::hive<int, fancy_allocator<int>>>();
+#endif // _HAS_CXX26
 }
 
 // Test that the fake vector _Hash uses to avoid allocator::construct is layout compatible with std::vector:

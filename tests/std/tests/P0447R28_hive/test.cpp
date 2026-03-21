@@ -3135,6 +3135,65 @@ void test_matrix() {
         using alloc = EH::EH_allocator<EH::wrapper<Raw>>;
         tests{alloc{1}, alloc{2}, maker<Raw>}.test_EH();
     }
+
+    // limits == {0, 0}
+    {
+        using hive_t      = hive<Raw, allocators::max_size_0_allocator<Raw>>;
+        const auto matrix = [&](size_t cnt) {
+            const auto test = [&](auto func) noexcept {
+                if (cnt == 0) {
+                    func();
+                } else {
+                    assert_throw<length_error>(func); // nonstandard test, _Xlength()
+                }
+            };
+
+            auto ilist = {Raw{}};
+            if (cnt == 0) {
+                ilist = {};
+            } else {
+                assert(cnt == 1);
+            }
+
+            const list unsized_src(ilist);
+
+            test([&] { (void) hive_t(cnt); });
+            test([&] { (void) hive_t(cnt, Raw{}); });
+            test([&] { (void) hive_t(ilist); });
+            test([&] { (void) hive_t(from_range, vector(ilist)); });
+            test([&] { (void) hive_t(unsized_src.begin(), unsized_src.end()); });
+
+            hive_t cont;
+            if (cnt != 0) {
+                assert_throw<length_error>([&] { cont.emplace(); }); // nonstandard test, _Xlength()
+            }
+            test([&] { cont.insert(cnt, Raw{}); });
+            test([&] { cont.insert(ilist); });
+            test([&] { cont.insert_range(vector(ilist)); });
+            test([&] { cont.insert(unsized_src.begin(), unsized_src.end()); });
+            test([&] { cont.assign(cnt, Raw{}); });
+            test([&] { cont.assign(ilist); });
+            test([&] { cont.assign_range(vector(ilist)); });
+            test([&] { cont.assign(unsized_src.begin(), unsized_src.end()); });
+
+            test([&] { cont.reserve(cnt); });
+        };
+
+        matrix(0);
+        matrix(1);
+
+        hive_t cont;
+        assert(cont.begin() == cont.end());
+        cont.clear();
+        cont.erase(cont.begin(), cont.end());
+        cont.reshape({0, 0});
+        cont.shrink_to_fit();
+        cont.sort();
+        cont.splice(hive_t{});
+        cont.swap(cont);
+        cont.trim_capacity();
+        cont.unique();
+    }
 }
 
 using trivial_small  = uint8_t; // bitset
